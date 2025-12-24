@@ -8,9 +8,9 @@
 #include <cmath>
 #include <iostream>
 
-#include "util/scalars/float_manipulation.hpp"
+#include "math/float_manipulation.hpp"
 
-namespace gv::util
+namespace gutil
 {
 	///////////////////////////////////////////////////////////////
 	/// This class provides exact arithmetic in fixed point precision.
@@ -74,7 +74,7 @@ namespace gv::util
 		}());
 
 		/// Conversion type to help cast to float or double
-		using Conversion_t = FloatingPointBits<sizeof(Mantissa_t)*8>;
+		using Conversion_t = BitView<sizeof(Mantissa_t)*8>;
 
 		///////////////////////////////////////////////////////////////
 		/// Current value and exponent
