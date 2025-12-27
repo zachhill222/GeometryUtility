@@ -66,13 +66,28 @@ namespace gutil {
 		}
 
 		bool try_pop(Data_t& item) {
-		size_t current_head = head.load(std::memory_order_acquire);
+			size_t current_head = head.load(std::memory_order_acquire);
 
 			if (current_head == tail.load(std::memory_order_acquire)) {
 				return false;  // Queue empty
 			}
 
 			item = queue[current_head];
+			head.store((current_head + 1) % CAPACITY, std::memory_order_release);
+			count.fetch_add(-1, std::memory_order_release);
+			return true;
+		}
+
+		template<typename DataCondition>
+		bool try_pop(Data_t& item) {
+			size_t current_head = head.load(std::memory_order_acquire);
+
+			if (current_head == tail.load(std::memory_order_acquire)) {
+				return false;  // Queue empty
+			} else if (!DataCondition(queue[current_head])) {
+				return false; // next data is not valid
+			}
+
 			head.store((current_head + 1) % CAPACITY, std::memory_order_release);
 			count.fetch_add(-1, std::memory_order_release);
 			return true;

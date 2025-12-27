@@ -3,23 +3,16 @@
 #include <cassert>
 #include <vector>
 
-#include <mutex>
-#include <shared_mutex>
-#include <atomic>
-#include <thread>
-#include <condition_variable>
-
 #include <cstring>
 #include <cmath>
+
+#include <mutex>
+#include <shared_mutex>
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
 #include "octree/octree_util.hpp"
 #include "octree/thread_queue.hpp"
-
-#ifdef _OPENMP
-	#include <omp.h>
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// BasicParallelOctree - Thread-safe spatial data structure
@@ -53,123 +46,53 @@ namespace gutil {
 	/// @tparam BUFFER_ON_STACK  When set to true, put the thread buffers on the stack.
 	///                             Otherwise, put them on the heap. If BUFFER_CAPACITY is large enough
 	///                             so that stack overflow is a concern, then this should be false.
+	/// @tparam N_INSERTER_THREADS The number of threads responsible for inserting the data. Must be between
+	///                            1 and N_CHILDREN (4 in 2D, 8 in 3D)
 	/////////////////////////////////////////////////
 	template<
 		typename DATA_T,
 		bool SINGLE_DATA,
 		int DIM=3,
 		int N_DATA=16,
-		typename T=float,
-		size_t BUFFER_CAPACITY=2048,
-		bool BUFFER_ON_STACK=true>
+		typename T=float>
 	class BasicParallelOctree {
 		static_assert(DIM==3 or DIM==2, "The octree must be in 2 or 3 dimensions");
 		static_assert(N_DATA > 0, "N_DATA must be positive");
 
-	template<typename data_t, bool single_data, int dim, int n_data, typename t>
-	friend void makeOctreeLeafMesh(const BasicParallelOctree<data_t, single_data, dim, n_data, t> &octree, const std::string filename);
-
 	public:
 		// Type aliases
-		using Node_t  = OctreeParallelNode<DIM, N_DATA, T>;
-		using Point_t = typename Node_t::Point_t;
-		using Box_t   = typename Node_t::Box_t;
+		using Node_t  = OctreeParallelNode<DIM,N_DATA,T>;
+		using Point_t = Point<DIM,T>;
+		using Box_t   = Box<DIM,T>;
 		using Data_t  = DATA_T;
 
-		static constexpr int N_CHILDREN = Node_t::N_CHILDREN;
-
-	private:
-		// Work item for async insertion
-		struct DataBuffer {
-			size_t  idx;
-			Node_t* target_node;
+		struct Stats {
+			size_t n_used_indices=0;
+			size_t n_indices_capacity=0;
+			size_t n_leafs=0;
+			size_t n_nodes=0;
+			size_t memory_reserved_bytes=0;
+			size_t memory_used_bytes=0;
+			int max_depth=0;
 		};
 
+		static constexpr int N_CHILDREN = Node_t::N_CHILDREN;
+	private:
 		// Tree structure
 		Node_t* _root = nullptr;
-		mutable std::shared_mutex _tree_mutex;
+		mutable std::shared_mutex _tree_mutex; //lock when doing large tree changes
 
 		// Data storage
 		std::vector<Data_t> _data;
 		std::atomic<size_t> _next_data_idx{0};
 
-		// Worker thread for tree updates
-		std::thread _inserter_thread;
-		std::condition_variable _inserter_cv;
-		mutable std::mutex _inserter_mtx;
-		std::atomic<bool> _running{true};
-		
-		// Pending work counter
-		std::atomic<size_t> _total_pending{0};
-		
-		// Per-thread work queues
-		using Queue_t = ThreadLocalQueue<DataBuffer, BUFFER_CAPACITY, BUFFER_ON_STACK>;
-		std::vector<Queue_t*> _all_queues;
-
 	public:
 		////////////////////////////////////////////////////////////
 		// Construction and destruction
 		////////////////////////////////////////////////////////////
-		explicit constexpr BasicParallelOctree(const Box_t &bbox) noexcept
-		{
-			//increase bounding box to closest power of 2 to better avoid floating point arithmetic errors
-			Point_t low(bbox.low());
-			Point_t high(bbox.high());
-
-			for (int i = 0; i < DIM; i++) {
-				int n  = 1+static_cast<int>(std::log2(std::fabs(low[i])));
-				if (low[i]<0.0) {low[i] = -static_cast<T>(std::pow(2.0, n));}
-				else {low[i] = static_cast<T>(std::exp2(n));}
-				
-				n  = 1+static_cast<int>(std::log2(std::fabs(high[i])));
-				if (high[i]<0.0) {high[i] = -static_cast<T>(std::pow(2.0, n));}
-				else {high[i] = static_cast<T>(std::exp2(n));}
-			}
-
-
-			//set _root with rounded bounding box
-			_root = new Node_t(Box_t{low, high});
-			resetDataIdx(_root);
-
-			// Set up thread-local queues
-			#ifdef _OPENMP
-				int max_threads = omp_get_max_threads();
-			#else
-				int max_threads = 1;
-			#endif
-			
-			_all_queues.resize(max_threads, nullptr);
-			for (int i = 0; i < max_threads; i++) {
-				_all_queues[i] = new Queue_t();
-				_all_queues[i]->queue_id = static_cast<size_t>(i);
-			}
-
-			// Start worker thread
-			_inserter_thread = std::thread([this]() {
-				_inserter_loop();
-			});
-		}
-
+		explicit constexpr BasicParallelOctree(const Box_t &bbox) noexcept;
 		constexpr BasicParallelOctree() noexcept : BasicParallelOctree(Box_t{}) {}
-
-		virtual ~BasicParallelOctree() {
-			// Signal worker thread to stop
-			_running.store(false);
-			_inserter_cv.notify_one();
-
-			// Wait for worker thread
-			if (_inserter_thread.joinable()) {
-				_inserter_thread.join();
-			}
-
-			// Clean up queues
-			for (auto* queue : _all_queues) {
-				delete queue;
-			}
-
-			// Clean up tree
-			delete _root;
-		}
+		virtual ~BasicParallelOctree() noexcept {delete _root;};
 
 		// Non-copyable, non-movable
 		BasicParallelOctree(const BasicParallelOctree&) = delete;
@@ -180,7 +103,6 @@ namespace gutil {
 		////////////////////////////////////////////////////////////
 		// Container interface
 		////////////////////////////////////////////////////////////
-		
 		void reserve(const size_t length) noexcept {
 			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
 			_data.reserve(length);
@@ -198,7 +120,8 @@ namespace gutil {
 		}
 
 		size_t size() const noexcept {
-			return _next_data_idx.load();
+			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			return _next_data_idx.load(std::memory_order_acquire);
 		}
 
 		size_t capacity() const noexcept {
@@ -212,9 +135,21 @@ namespace gutil {
 			// Remove indices for data being removed
 			if (_root != nullptr) {
 				for (size_t i = length; i < _data.size(); i++) {
-					_recursive_remove_idx(_root, i, _data[i]);
+					#if SINGLE_DATA
+						read_thread_yield_enter(_root);
+						Node_t* start_node = _recursive_find_first_leaf(_root, _data[i]);
+						read_thread_exit(_root);
+					#else
+						Node_t* start_node = _root;
+					#endif
+
+					write_thread_yield_enter(start_node);
+					_recursive_remove_index(start_node, i, _data[i]);
+					write_thread_exit(start_node);
 				}
 			}
+
+			// Resize the storage container
 			_data.resize(length);
 		}
 
@@ -224,7 +159,7 @@ namespace gutil {
 			_data.clear();
 			_next_data_idx.store(0);
 			
-			// Rebuild tree structure
+			// clear the tree structure
 			Node_t* new_root = new Node_t(_root->bbox);
 			resetDataIdx(new_root);
 			delete _root;
@@ -257,637 +192,420 @@ namespace gutil {
 		////////////////////////////////////////////////////////////
 		// Querries
 		////////////////////////////////////////////////////////////
-		size_t get_data_in_box(const Box_t& bbox, std::vector<size_t>& data_indices) const {
-			_recursive_data_in_box(_root, bbox, data_indices);
+		/// Find all data indices that MAY be associated with the specified box
+		/// This gets all data contained in nodes where the node bounding box intersects the
+		/// specified bounding box
+		size_t get_data_in_box(const Box_t& bbox, std::vector<size_t>& data_indices) const;
 
-			//ensure that data_indices is sorted and has no duplicates
-			std::sort(data_indices.begin(), data_indices.end());
-			auto last = std::unique(data_indices.begin(), data_indices.end());
-			data_indices.erase(last, data_indices.end());
-
-			//return number of data indices found
-			return data_indices.size();
+		/// Find existing data in tree
+		/// Returns index if found, (size_t)-1 if not found
+		size_t find(const Data_t& val) const {
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
+			read_thread_yield_enter(_root);
+			const size_t result = _recursive_find_index(_root, val);
+			read_thread_exit(_root);
+			return result;
 		}
-
 
 		////////////////////////////////////////////////////////////
 		// Iterators
 		////////////////////////////////////////////////////////////
 		auto begin()        { return _data.begin(); }
-		auto begin()  const { return _data.cbegin(); }
-		auto cbegin() const { return _data.cbegin(); }
-		auto end()          { return _data.end(); }
-		auto end()    const { return _data.cend(); }
-		auto cend()   const { return _data.cend(); }
+		auto begin()  const { return _data.cbegin();}
+		auto cbegin() const { return _data.cbegin();}
+		auto end()          { return _data.end();   }
+		auto end()    const { return _data.cend();  }
+		auto cend()   const { return _data.cend();  }
 
 		////////////////////////////////////////////////////////////
-		// Spatial queries
+		// Interact with the bounding box
 		////////////////////////////////////////////////////////////
-		const Box_t& bbox() const {
-			return _root->bbox;
-		}
+		inline const Box_t& bbox() const {return _root->bbox;}
 
-		void ensure_bbox_is_valid(const Data_t& val) {
-			//get size of new bounding box
+		void resize_to_fit_data(const Data_t& val) {
 			Box_t new_bbox = _root->bbox;
 			while (!isValid(new_bbox, val)) {new_bbox = T(2)*new_bbox;}
 			set_bbox(new_bbox);
 		}
 
 		void set_bbox(const Box_t& new_bbox) {
+			assert(new_bbox.contains(_root->bbox));
 			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
-
 			_recursive_expand_bbox(new_bbox);
 
 			// Reinsert data into new nodes if needed
 			if constexpr (!SINGLE_DATA) {
 				for (size_t j = 0; j < _data.size(); j++) {
+					read_thread_yield_enter(_root);
+					Node_t* start_node = _recursive_find_first_leaf(_root, _data[j]);
+					read_thread_exit(_root);
+
+					write_thread_yield_enter(start_node);
 					_recursive_insert_data(_root, _data[j], j);
+					write_thread_exit(start_node);
 				}
 			}
 		}
 
-		/// Find existing data in tree
-		/// Returns index if found, (size_t)-1 if not found
-		size_t find(const Data_t& val) const {
-			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-			return _recursive_find_index<true>(_root, val);
-		}
-
-		/// Reinsert data at given index (call only from single thread)
-		void reinsert(size_t idx) {
-			assert(idx < _data.size());
-			
-			_recursive_remove_idx(_root, idx); //we don't know that the data now in _data[idx] is near the old data
-
-			if (!isValid(_root->bbox, _data[idx])) {
-				_recursive_resize_to_fit_data(_data[idx], 8);
-			}
-
-			if constexpr (!SINGLE_DATA) {
-					for (size_t j = 0; j < _data.size(); j++) {
-						_recursive_insert_data(_root, _data[j], j);
-					}
-				}
-			else {
-				_recursive_insert_data(_root, _data[idx], idx);
-			}
-		}
-
+		
 		////////////////////////////////////////////////////////////
 		// Insertion operations
 		////////////////////////////////////////////////////////////
+		/// Reinsert data at given index (call only from single thread)
+		void reinsert(size_t idx);
+
 		/// Single thread copy and move
 		size_t push_back(const Data_t &val) {
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
 			Data_t copy(val);
 			return push_back(std::move(copy));
 		}
 
-		/// Single thread move
-		size_t push_back(Data_t &&val) {
-			if (!isValid(_root->bbox, val)) {ensure_bbox_is_valid(val);}
-			assert(isValid(_root->bbox, val));
+		/// Add data to end of _data
+		size_t push_back(Data_t &&val);
 
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
-
-			// Try to find existing data
-			Node_t* start_node = _recursive_find_best_node(_root, val);
-			size_t idx = _recursive_find_index<true>(start_node, val);
-			
-			if (idx != (size_t)-1) {
-				assert(_data[idx] == val);
-				return idx;
-			}
-
-			// Insert new data
-			idx = _next_data_idx.fetch_add(1);
-			if (_data.size() == idx+1) {_data.push_back(std::move(val));}
-			else if (_data.size() == idx) {
-				_data.resize(idx + 1);
-				_data[idx] = std::move(val);
-			}
-			else {assert(false);}
-
-			// Update tree immediately
-			[[maybe_unused]] int flag = _recursive_insert_data(start_node, _data[idx], idx);
-			assert(flag == 1);
-
-			// Flush down the data if needed
-			_recursive_push_data_down(start_node);
-			return idx;
-		}
-
-		/// Asynchronous move (for parallel use with OpenMP)
-		size_t push_back_async(Data_t &&val) {
-			#ifndef _OPENMP
-				return push_back(std::move(val));
-			#endif
-
-			//ensure_box_is_valis will lock the entire tree
-			//this should be avoided, but will likely only be called a handful of times
-			//as the bounding box will double its sidelength every time this happens
-			if (!isValid(_root->bbox, val)) {ensure_bbox_is_valid(val);}
-			assert(isValid(_root->bbox, val));
-
-
-			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-
-			// Try to find existing data
-			Node_t* start_node = _recursive_find_best_node(_root, val);
-			size_t idx = _recursive_find_index<false>(start_node, val);
-			
-			if (idx != (size_t)-1) {
-				return idx;
-			}
-
-			// Reserve index and store data immediately
-			idx = _next_data_idx.fetch_add(1);
-			assert(_data.size() > idx);
-			_data[idx] = std::move(val);
-
-			// Queue tree update for worker thread
-			#ifdef _OPENMP
-				int thread_no = omp_get_thread_num();
-			#else
-				int thread_no = 0;
-			#endif
-			
-			
-			_total_pending.fetch_add(1, std::memory_order_release);
-			Queue_t* thread_queue = _all_queues[thread_no];
-			while(!thread_queue->try_push(DataBuffer{idx, start_node})) {
-				//keep trying to insert if the buffer is full
-				_inserter_cv.notify_one();
-				std::this_thread::yield();
-			}
-
-			// Notify worker thread
-			_inserter_cv.notify_one();
-
-			return idx;
-		}
+		/// Asynchronous move
+		size_t push_back_async(Data_t &&val) {return 1;};
 
 		/// Wait for all pending async insertions to complete
-		void flush() {
-			//best to call this after exiting the openMP parallel block
-			//for example:
-			// #pragma omp parallel for
-			// for ... {
-			//    octree.push_back_async(guarenteed_unique_data);
-			// }
-			// octree.flush();
-
-			//if openmp is not enabled, then this does not need to be used
-			#ifndef _OPENMP
-				return;
-			#endif
-
-			{
-				std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-
-				// Wake up worker thread
-				_inserter_cv.notify_one();
-
-				// Spin until all work is done
-				while (_total_pending.load(std::memory_order_acquire) > 0) {
-					std::this_thread::yield();
-				}
-
-				// Ensure all memory writes are visible
-				std::atomic_thread_fence(std::memory_order_seq_cst);
-			}
-
-			//push all new data down
-			{
-				std::lock_guard<std::shared_mutex> lock(_tree_mutex);
-				_recursive_push_data_down(_root);
-			}
-			
-			//check if the buffers were ever full
-			#ifndef NDEBUG
-			for (size_t i=0; i<_all_queues.size(); i++) {
-				Queue_t* thread_queue = _all_queues[i];
-				if (thread_queue->buffer_bumps.load(std::memory_order_acquire)>0) {	
-					std::cout << "WARNING: thread buffer " << i << " was full " << thread_queue->buffer_bumps << " times since last flush" << std::endl;
-					thread_queue->buffer_bumps.store(0, std::memory_order_release);
-				}
-				assert(thread_queue->count.load(std::memory_order_acquire)==0);
-				assert(thread_queue->empty(std::memory_order_seq_cst));
-			}
-			#endif
-		}
-
-		////////////////////////////////////////////////////////////
-		// Data validation
-		////////////////////////////////////////////////////////////
-		/// Check if there are any duplicate values
-		/// All data must be pushed down for this method to work.
-		/// Data will be pushed down after flush() is called.
-		/// Inserting data single-threaded will push the data to the leaf at the
-		/// time of insertion.
-		void duplicateCheck() const {
-			_recursive_duplicate_data(_root);
-		}
-		void findCheck() const {
-			for (size_t i = 0; i < size(); i++) {
-				if (i != find(_data[i])) {
-					std::cout << "ParallelOctree: Could not find data at index " << i << std::endl;
-					try {
-						std::cout << _data[i] << std::endl;
-					} catch(...) {}
-				}
-			}
-		}
+		void flush() {};
 
 		////////////////////////////////////////////////////////////
 		// Summary information
 		////////////////////////////////////////////////////////////
-		void treeSummary(size_t &n_nodes, size_t &n_idx, size_t &n_idx_cap, size_t &n_leafs, int &max_depth) const {
-			n_nodes=0;
-			n_idx=0;
-			n_idx_cap=0;
-			n_leafs=0;
-			max_depth=0;
-			_recursive_node_properties(_root, n_nodes, n_idx, n_idx_cap, n_leafs, max_depth);
-			max_depth -= _root->depth; //if the bounding box was re-sized, the root may now have a negative depth
+		Stats treeSummary() const {
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
+			Stats stats{};
+
+			read_thread_yield_enter(_root);
+			_recursive_node_properties(_root, stats);
+			//if the bounding box was re-sized, the root may now have a negative depth
+			stats.max_depth -= _root->depth;
+			read_thread_exit(_root);
+
+			return stats;
 		}
 
 	private:
-		////////////////////////////////////////////////////////////
-		// Worker thread
-		////////////////////////////////////////////////////////////
-		
-		void _inserter_loop() {
-			while (_running.load()) {
-				// Wait for work
-				{
-					std::unique_lock<std::mutex> lock(_inserter_mtx);
-					_inserter_cv.wait(lock);
-				}
-
-				// Process all queued work
-				while (_total_pending.load(std::memory_order_acquire) > 0) {
-					std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-
-					for (auto* thread_queue : _all_queues) {
-						if (thread_queue==nullptr) continue;
-						
-						while (!thread_queue->empty()) {
-							DataBuffer work;
-							[[maybe_unused]] bool found_data = thread_queue->try_pop(work);
-							assert(found_data);
-
-							// Try to insert into tree
-							size_t existing_idx = _recursive_find_index<true>(work.target_node, _data[work.idx]);
-							
-							if (existing_idx == (size_t)-1) {
-								// Not found, insert it
-								[[maybe_unused]] int flag = _recursive_insert_data(
-									work.target_node, _data[work.idx], work.idx);
-								assert(flag == 1);
-							} else if (existing_idx != work.idx) {
-								// Found duplicate
-								// The user must ensure that no duplicate data will be inserted in parallel
-								#ifndef NDEBUG
-									std::cout << "ParallelOctree: tried to insert index " << work.idx << " but the data already exists at index " << existing_idx << std::endl;
-									try {
-										std::cout << "new data:\n" << _data[work.idx] << std::endl;
-										std::cout << "old data:\n" << _data[existing_idx] << std::endl;
-									} catch(...) {} //no printing method implemented
-								#endif
-								throw std::runtime_error("ParallelOctree: duplicate data inserted in push_back_async");
-							}
-
-							// Decrement counters AFTER work is complete
-							_total_pending.fetch_sub(1, std::memory_order_release);
-						}
-					}
-				}
-			}
-		}
-
-		////////////////////////////////////////////////////////////
-		// Abstract interface (must be overridden)
-		////////////////////////////////////////////////////////////
-		/// Determine if data belongs in the given bounding box
+		/// Determine if data belongs in the given bounding box (must be overridden)
 		virtual constexpr bool isValid(const Box_t &bbox, const Data_t &val) const = 0;
 
 		////////////////////////////////////////////////////////////
-		// Query helpers
+		// Recursive helper functions
 		////////////////////////////////////////////////////////////
-		void _recursive_data_in_box(const Node_t* node, const Box_t& bbox, std::vector<size_t>& data_indices) const
-		{
-			if (node==nullptr) {return;}
-			if(!bbox.intersects(node->bbox)) {return;}
-
-			if (node->cursor>0) {
-				//copy data to end of vector (this should almost always only happen in leaf nodes)
-				data_indices.insert(data_indices.end(), node->data_idx, node->data_idx+node->cursor);
-			}
-
-			//recurse into children
-			for (int c = 0; c < N_CHILDREN; c++) {
-				_recursive_data_in_box(node->children[c], bbox, data_indices);
-			}
-
-			//note that data_indices may contain duplicate entries at this point
-		}
-
-
-		////////////////////////////////////////////////////////////
-		// Tree operations
-		////////////////////////////////////////////////////////////
-		/// Remove index from node and all descendants
-		void _recursive_remove_idx(Node_t* node, size_t idx) {
-			if (node==nullptr) {return;}
-			removeDataIdx(node, idx);
-			for (int c = 0; c < N_CHILDREN; c++) {
-				_recursive_remove_idx(node->children[c], idx); //ok if a child is nullptr
-			}
-		}
-
-		/// Remove index from node and descendants (optimized with validity check)
-		void _recursive_remove_idx(Node_t* node, size_t idx, const Data_t &val) {
-			removeDataIdx(node, idx);
-			for (int c = 0; c < N_CHILDREN; c++) {
-				if (node->children[c] == nullptr) {continue;}
-				if (isValid(node->children[c]->bbox, val)) {
-					_recursive_remove_idx(node->children[c], idx, val);
-				}
-			}
-		}
-
 		/// Find best node to start insertion/search
-		Node_t* _recursive_find_best_node(Node_t* node, const Data_t &val) {
-			if (isLeaf(node)) {
-				return (node->parent != nullptr) ? node->parent : node;
-			}
-
-			// Traverse to child containing data
-			for (int c = 0; c < N_CHILDREN; c++) {
-				if (isValid(node->children[c]->bbox, val)) {
-					return _recursive_find_best_node(node->children[c], val);
-				}
-			}
-
-			// Data not in any child
-			return _root;
-		}
-
-		/// Find index of data in tree
-		/// @tparam UNLOCKED If true, skip locking (for single-threaded use)
-		template<bool UNLOCKED>
-		size_t _recursive_find_index(const Node_t* node, const Data_t &val) const {
-			if (node==nullptr) {return (size_t) -1;}
-
-			//check this node's data
-			//this will usually only run in the leaf nodes
-			//if push_back_async is running, data will not be pushed down until flush() is called
-			if (node->data_idx!=nullptr) {
-				if constexpr (UNLOCKED) {
-					for (int i = 0; i < node->cursor; i++) {
-						size_t idx = node->data_idx[i];
-						if (_data[idx] == val) {
-							return idx;
-						}
-					}
-				} else {
-					std::shared_lock<std::shared_mutex> lock(node->_rw_mtx);
-					for (int i = 0; i < node->cursor; i++) {
-						size_t idx = node->data_idx[i];
-						if (_data[idx] == val) {
-							return idx;
-						}
-					}
-				}
-			} 
-
-			//data has not been found, check the children
-			for (int c = 0; c < N_CHILDREN; c++) {
-				if (node->children[c]==nullptr) {continue;}
-
-				if (isValid(node->children[c]->bbox, val)) {
-					size_t idx = _recursive_find_index<UNLOCKED>(node->children[c], val);
-					if (idx != (size_t)-1) {
-						return idx;
-					}
-				}
-			}
-
-			return (size_t)-1;
-		}
-
-		/// Expand root bounding box to contain new region
-		void _recursive_expand_bbox(const Box_t& new_bbox) {
-			if (_root->bbox.contains(new_bbox)) {
-				return;
-			}
-
-			// Double the bounding box and find best placement
-			Box_t expanded_root_bbox = 2.0 * _root->bbox;
-			int max_vertices = -1;
-			int best_sibling_number = -1;
-
-			for (int c = 0; c < N_CHILDREN; c++) {
-				Point_t offset = _root->bbox.voxelvertex(c) - expanded_root_bbox.voxelvertex(c);
-				Box_t test_box = expanded_root_bbox + offset;
-				
-				int n_verts = 0;
-				for (int i = 0; i < N_CHILDREN; i++) {
-					if (test_box.contains(new_bbox.voxelvertex(i))) {
-						n_verts++;
-					}
-				}
-
-				if (n_verts > max_vertices) {
-					best_sibling_number = c;
-					max_vertices = n_verts;
-				}
-			}
-
-			// Create new root
-			Point_t offset = _root->bbox.voxelvertex(best_sibling_number) 
-			               - expanded_root_bbox.voxelvertex(best_sibling_number);
-			Box_t new_root_bbox = expanded_root_bbox + offset;
-
-			Node_t* old_root = _root;
-			_root = new Node_t(new_root_bbox, old_root->depth - 1);
-			_divide(_root);
-			
-			delete _root->children[best_sibling_number];
-			_root->children[best_sibling_number] = old_root;
-			old_root->parent = _root;
-
-			assert(_root->bbox.voxelvertex(best_sibling_number) == 
-			       old_root->bbox.voxelvertex(best_sibling_number));
-			
-			// Recursively expand if needed
-			if (max_vertices < N_CHILDREN) {
-				_recursive_expand_bbox(new_bbox);
-			}
-		}
-
-		/// Expand bbox until data fits
-		void _recursive_resize_to_fit_data(const Data_t &val, int iter) {
-			if (iter < 0) {
-				throw std::runtime_error("Maximum recursion depth in resize_to_fit_data");
-			}
-
-			if (!isValid(_root->bbox, val)) {
-				set_bbox(2.0 * _root->bbox);
-				_recursive_resize_to_fit_data(val, iter - 1);
-			}
-		}
-
-		/// Check if there is duplicated data
-		void _recursive_duplicate_data(const Node_t* node) const {
-			if (node==nullptr) {return;}
-
-			if (isLeaf(node)) {
-				if (node->data_idx==nullptr) {return;}
-				for (int i = 0; i < node->cursor; i++) {
-					size_t ii = node->data_idx[i];
-					for (int j = i+1; j < node->cursor; j++) {
-						size_t jj = node->data_idx[j];
-						if (_data[ii] == _data[jj]) {
-							if (ii == jj) {
-								std::cout << "ParallelOctree: node contains duplicate index: " << ii << std::endl;
-							} else {
-								std::cout << "ParallelOctree: node contains duplicate data at indices: " << ii << " and " << jj << std::endl;
-							}
-						}
-					}
-				}
-			} else {
-				assert(node->data_idx==nullptr);
-				assert(node->cursor==0);
-				for (int c = 0; c < N_CHILDREN; c++) {
-					_recursive_duplicate_data(node->children[c]);
-				}
-			}
-		}
-
-		/// Push data down the tree (recursively)
-		void _recursive_push_data_down(Node_t* node) {
-			if (node==nullptr) {return;}
-			if (isLeaf(node)) {return;}
-
-			// Distribute data to children
-			if (node->data_idx != nullptr) {
-				std::lock_guard<std::shared_mutex> lock(node->_rw_mtx);
-				
-				for (int i = 0; i < node->cursor; i++) {
-					size_t idx = node->data_idx[i];
-					const Data_t &data = _data[idx];
-					
-					for (int c = 0; c < N_CHILDREN; c++) {
-						if (isValid(node->children[c]->bbox, data)) {
-							//check if the child has room
-							if (node->children[c]->cursor == N_DATA) {
-								//if the child does not have room, push its data down
-								if (isLeaf(node->children[c])) {
-									_divide(node->children[c]);
-								}
-								_recursive_push_data_down(node->children[c]);
-							}
-
-
-							assert(!containsIndex(node->children[c], idx));
-							[[maybe_unused]] int flag = appendDataIdx(node->children[c], idx);
-							assert(flag>=0);
-							if (flag==0) {std::cout << "data at index " << idx << " already pushed down" << std::endl;}
-							
-							if constexpr (SINGLE_DATA) {
-								break;  // Only first valid child gets the data
-							}
-						}
-					}
-				}
-
-				// Delete current data
-				clearDataIdx(node);
-			}
-
-			// Recurse into children
-			for (int c = 0; c < N_CHILDREN; c++) {
-				_recursive_push_data_down(node->children[c]);
-			}
-		}
-
-
-		/// Divide a leaf node into children
-		void _divide(Node_t* node) {
-			assert(isLeaf(node));
-
-			// Create children
-			for (int c = 0; c < N_CHILDREN; c++) {
-				assert(node->children[c] == nullptr);
-				node->children[c] = new Node_t(node, c);
-			}
-
-			// Clear parent node
-			node->is_leaf.store(false);
-		}
+		Node_t* _recursive_find_first_leaf(const Node_t* node, const Data_t &val) const;
 
 		/// Insert data into tree
-		int _recursive_insert_data(Node_t* node, const Data_t &val, size_t idx) {
-			assert(node != nullptr);
-			assert(isValid(node->bbox, val));
-			assert(!containsIndex(node, idx));
+		int _recursive_insert_data(Node_t* node, const Data_t &val, const size_t idx);
 
+		/// Divide a leaf node into children
+		void _divide(Node_t* node);
 
-			// Handle leaf node
-			if (isLeaf(node)) {
-				std::lock_guard<std::shared_mutex> lock(node->_rw_mtx);
-				
-				int flag = appendDataIdx(node, idx);
-				if (flag >= 0) {
-					return flag;
-				}
-				
-				// Node full, divide it
-				_divide(node);
-				return _recursive_insert_data(node, val, idx); //call until we are in a leaf node with room
-			} else {
-				// Insert into appropriate children
-				int flag = 99;
-				for (int c = 0; c < N_CHILDREN; c++) {
-					assert(node->children[c] != nullptr);
-					
-					if (isValid(node->children[c]->bbox, val)) {
-						flag = _recursive_insert_data(node->children[c], val, idx);
-						
-						if constexpr (SINGLE_DATA) {
-							return flag;
-						}
-					}
-				}
+		/// Find index of data in tree
+		size_t _recursive_find_index(const Node_t* node, const Data_t &val) const;
 
-				assert(flag != 99);
-				return flag;
-			}
-		}
+		/// Find all data indices in nodes that intersect the specified box
+		void _recursive_data_in_box(const Node_t* node, const Box_t& bbox,
+			std::vector<size_t>& data_indices) const;
 
+		/// Remove index from node and all descendants
+		void _recursive_remove_index(Node_t* node, const size_t idx);
+
+		/// Remove index from node and descendants (optimized with validity check)
+		void _recursive_remove_index(Node_t* node, size_t idx, const Data_t &val);
+
+		/// Expand root bounding box to contain new region
+		void _recursive_expand_bbox(const Box_t& new_bbox);
+
+		/// Check if there is duplicated data
+		void _recursive_duplicate_data(const Node_t* node) const;
+
+		
 
 		/////////////////////////////////////////////////
-		/// Convenience and debud methods
+		/// Convenience and debug methods
 		/////////////////////////////////////////////////
-		void _recursive_node_properties(const Node_t* node, size_t &n_nodes, size_t &n_idx, size_t &n_idx_cap, size_t &n_leafs, int &max_depth) const {
-			if (node == nullptr) {return;}
-			n_nodes++;
-			
-			if (isLeaf(node)) {n_leafs++;}
-
-			if (node->data_idx != nullptr) {
-				n_idx += node->cursor;
-				n_idx_cap += N_DATA;
-			}
-
-			max_depth = std::max(max_depth, node->depth);
-
-			for (int c = 0; c < OctreeParallelNode<DIM,N_DATA,T>::N_CHILDREN; c++) {
-				_recursive_node_properties(node->children[c], n_nodes, n_idx, n_idx_cap, n_leafs, max_depth);
-			}
-		}
+		void _recursive_node_properties(const Node_t* node, Stats& stats) const;
 	};
+
+
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	/////////////////////////////////    METHOD IMPLEMNTATION    /////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	constexpr BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::BasicParallelOctree(
+		const Box<DIM,T>& bbox) noexcept
+	{
+		//increase bounding box to closest power of 2 to better avoid floating point arithmetic errors
+		Point_t low(bbox.low());
+		Point_t high(bbox.high());
+
+		for (int i = 0; i < DIM; i++) {
+			int n  = 1+static_cast<int>(std::log2(std::fabs(low[i])));
+			if (low[i]<0.0) {low[i] = -static_cast<T>(std::pow(2.0, n));}
+			else {low[i] = static_cast<T>(std::exp2(n));}
+			
+			n  = 1+static_cast<int>(std::log2(std::fabs(high[i])));
+			if (high[i]<0.0) {high[i] = -static_cast<T>(std::pow(2.0, n));}
+			else {high[i] = static_cast<T>(std::exp2(n));}
+		}
+
+
+		//set _root with rounded bounding box
+		_root = new Node_t(Box_t{low, high});
+		write_thread_yield_enter(_root);
+		resetDataIdx(_root);
+		write_thread_exit(_root);
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::get_data_in_box(
+		const Box_t& bbox, std::vector<size_t>& data_indices) const
+	{
+		read_thread_yield_enter(_root);
+		_recursive_data_in_box(_root, bbox, data_indices);
+		read_thread_exit(_root);
+
+		//ensure that data_indices is sorted and has no duplicates
+		std::sort(data_indices.begin(), data_indices.end());
+		auto last = std::unique(data_indices.begin(), data_indices.end());
+		data_indices.erase(last, data_indices.end());
+
+		//return number of data indices found
+		return data_indices.size();
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::push_back(DATA_T&& val)
+	{
+		std::shared_lock<std::shared_mutex> lock(_tree_mutex);
+		Node_t* start_node = _root;
+		if (read_thread_try_enter(_root))
+		{
+			start_node = _recursive_find_first_leaf(_root, val);
+			read_thread_exit(_root);
+		}
+
+		size_t idx = (size_t) -1;
+
+		read_thread_yield_enter(start_node);
+		idx = _recursive_find_index(start_node, val);
+		read_thread_exit(start_node);
+		if (idx!=(size_t) -1) {return idx;}
+
+		//data must be inserted
+		idx = _next_data_idx.fetch_add(1, std::memory_order_acq_rel);
+		if (_data.size() == idx+1) {_data.push_back(std::move(val));}
+		else if (_data.size() < idx) {
+			_data.resize(idx + 1);
+			_data[idx] = std::move(val);
+		}
+		else {
+			_data[idx] = std::move(val);
+		}
+
+		//insert the data into the tree
+		write_thread_yield_enter(start_node);
+		[[maybe_unsused]] int flag = _recursive_insert_data(start_node, val, idx);
+		write_thread_exit(start_node);
+		assert(flag==1);
+
+		return idx;
+	}
+
+
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////    RECURSIVE METHOD IMPLEMNTATION    ////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	OctreeParallelNode<DIM,N_DATA,T>* 
+		BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_find_first_leaf(
+			const OctreeParallelNode<DIM,N_DATA,T>* node, const Data_t &val) const
+	{
+		//the read lock must be aquired before entering this node
+		assert(node->n_threads_visiting.load(std::memory_order_acquire) > 0);
+
+		if (!isValid(node->bbox, val)) {return nullptr;}
+
+		if (isLeaf(node)) {
+			return const_cast<OctreeParallelNode<DIM,N_DATA,T>*>(node);
+		}
+
+		// Traverse to child containing data
+		for (int c = 0; c < N_CHILDREN; c++) {
+			if (isValid(node->children[c]->bbox, val)) {
+				if (read_thread_try_enter(node->children[c]))
+				{
+					auto best_node = _recursive_find_first_leaf(node->children[c], val);
+					read_thread_exit(node->children[c]);
+					return best_node;
+				}
+				else
+				{
+					return node->children[c];
+				}
+			}
+		}
+
+		// Couldn't find a valid leaf
+		return nullptr;
+	}
+
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	int BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_insert_data(
+			OctreeParallelNode<DIM,N_DATA,T>* node, const Data_t &val, const size_t idx)
+	{
+		//the write lock must be aquired before calling this and released after returning
+		//use write_thread_yield_enter followed by write_thread_exit for example.
+		assert(node->n_threads_visiting.load(std::memory_order_acquire) == -1);
+
+		//return 1 on success and -1 on fail, return 0 on data already exists
+		//debug sanity check
+		assert(isValid(node->bbox, val));
+		
+		if (!isLeaf(node))
+		{
+			//recurse into child nodes
+
+			assert(node->data_idx == nullptr);
+			int flag=-1; //failure flag
+
+			for (int c=0; c<N_CHILDREN; c++)
+			{
+				if (isValid(node->children[c]->bbox, val))
+				{
+					write_thread_yield_enter(node->children[c]);
+					flag = std::max(flag, _recursive_insert_data(node->children[c], val, idx));
+					write_thread_exit(node->children[c]);
+					if constexpr (SINGLE_DATA) {break;}
+				}
+			}
+
+			return flag;
+		}
+		else
+		{
+			int flag = appendDataIdx(node, idx);
+			if (flag>=0) {return flag;} //either the data was found or it was successfully added
+
+			_divide(node);
+			//retry now that the node is divided
+			//the lock for this node is already handled
+			return _recursive_insert_data(node, val, idx);
+		}
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_divide(
+			OctreeParallelNode<DIM,N_DATA,T>* node)
+	{
+		//the write lock must already be aquired for this node
+		assert(node->n_threads_visiting.load(std::memory_order_acquire) == -1);
+		assert(isLeaf(node));
+
+		//create child nodes
+		for (int c=0; c<N_CHILDREN; c++) {
+			assert(node->children[c] == nullptr);
+			node->children[c] = new Node_t(node, c);
+		}
+
+		//copy data down
+		for (int d=0; d<node->cursor; d++)
+		{
+			const size_t d_idx = node->data_idx[d];
+			const DATA_T& val  = _data[d_idx];
+			for (int c=0; c<N_CHILDREN; c++)
+			{
+				if (isValid(node->children[c]->bbox, val))
+				{
+					write_thread_yield_enter(node->children[c]);
+					[[maybe_unsused]] int flag = appendDataIdx(node->children[c], d_idx);
+					write_thread_exit(node->children[c]);
+					assert(flag==1);
+					if constexpr (SINGLE_DATA) {break;}
+				}
+			}
+		}
+
+		// Clear parent node
+		node->is_leaf.store(false);
+		clearDataIdx(node);
+	}
+
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
+		_recursive_find_index(const OctreeParallelNode<DIM,N_DATA,T>* node, const DATA_T &val) const
+	{
+		//the read lock must be aquired before entering this node
+		assert(node->n_threads_visiting.load(std::memory_order_acquire) > 0);
+
+		if (!isLeaf(node))
+		{
+			assert(node->data_idx==nullptr);
+			for (int c=0; c<N_CHILDREN; c++)
+			{
+				if (isValid(node->children[c]->bbox, val))
+				{
+					read_thread_yield_enter(node->children[c]);
+					const size_t result = _recursive_find_index(node->children[c], val);
+					read_thread_exit(node->children[c]);
+
+					if (result<size()) {return result;}
+				}
+			}
+		}
+		else 
+		{
+			if (node->data_idx==nullptr) {return (size_t) -1;}
+
+			for (int i=0; i<node->cursor; i++)
+			{
+				const size_t d_idx = node->data_idx[i];
+				if (_data[d_idx]==val) {return d_idx;}
+			}
+		}
+
+		return (size_t) -1;
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
+		_recursive_remove_index(OctreeParallelNode<DIM,N_DATA,T>* node, const size_t idx)
+	{
+		//the write lock must already be aquired for this node
+		assert(node->n_threads_visiting.load(std::memory_order_acquire) == -1);
+
+		if (node==nullptr) {return;}
+		removeDataIdx(node, idx);
+		for (int c=0; c<N_CHILDREN; c++)
+		{
+			if (node->children[c]==nullptr) {continue;}
+			write_thread_yield_enter(node->children[c]);
+			_recursive_remove_index(node->children[c], idx);
+			write_thread_exit(node->children[c]);
+		}
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
+		_recursive_remove_index(OctreeParallelNode<DIM,N_DATA,T>* node, const size_t idx, const DATA_T& val)
+	{
+		if (node==nullptr) {return;}
+		removeDataIdx(node, idx);
+		for (int c=0; c<N_CHILDREN; c++)
+		{
+			if (node->children[c]==nullptr) {continue;}
+			if (isValid(node->children[c]->bbox, val))
+			{
+				write_thread_yield_enter(node->children[c]);
+				_recursive_remove_index(node->children[c], idx, val);
+				write_thread_exit(node->children[c]);
+			}
+		}
+	}
+
+		
 }
