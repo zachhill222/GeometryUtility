@@ -104,57 +104,41 @@ namespace gutil {
 		// Container interface
 		////////////////////////////////////////////////////////////
 		void reserve(const size_t length) noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			_data.reserve(length);
 		}
 
 		void shrink_to_fit() noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			_data.resize(_next_data_idx.load());
 			_data.shrink_to_fit();
 		}
 
 		bool empty() const noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			return _data.empty();
 		}
 
 		size_t size() const noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			return _next_data_idx.load(std::memory_order_acquire);
 		}
 
 		size_t capacity() const noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			return _data.capacity();
 		}
 
 		void resize(const size_t length) noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
-
-			// Remove indices for data being removed
-			if (_root != nullptr) {
-				for (size_t i = length; i < _data.size(); i++) {
-					#if SINGLE_DATA
-						read_thread_yield_enter(_root);
-						Node_t* start_node = _recursive_find_first_leaf(_root, _data[i]);
-						read_thread_exit(_root);
-					#else
-						Node_t* start_node = _root;
-					#endif
-
-					write_thread_yield_enter(start_node);
-					_recursive_remove_index(start_node, i, _data[i]);
-					write_thread_exit(start_node);
-				}
-			}
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
+			assert(length > _next_data_idx.load(std::memory_order_acquire));
 
 			// Resize the storage container
 			_data.resize(length);
 		}
 
 		void clear() noexcept {
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 
 			_data.clear();
 			_next_data_idx.store(0);
@@ -195,15 +179,14 @@ namespace gutil {
 		/// Find all data indices that MAY be associated with the specified box
 		/// This gets all data contained in nodes where the node bounding box intersects the
 		/// specified bounding box
-		size_t get_data_in_box(const Box_t& bbox, std::vector<size_t>& data_indices) const;
+		std::vector<size_t> get_data_in_box(const Box_t& bbox) const;
 
 		/// Find existing data in tree
 		/// Returns index if found, (size_t)-1 if not found
 		size_t find(const Data_t& val) const {
-			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-			read_thread_yield_enter(_root);
+			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
+			std::shared_lock<std::shared_mutex> lock(_root->mutex);
 			const size_t result = _recursive_find_index(_root, val);
-			read_thread_exit(_root);
 			return result;
 		}
 
@@ -230,19 +213,22 @@ namespace gutil {
 
 		void set_bbox(const Box_t& new_bbox) {
 			assert(new_bbox.contains(_root->bbox));
-			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			_recursive_expand_bbox(new_bbox);
 
 			// Reinsert data into new nodes if needed
 			if constexpr (!SINGLE_DATA) {
 				for (size_t j = 0; j < _data.size(); j++) {
-					read_thread_yield_enter(_root);
-					Node_t* start_node = _recursive_find_first_leaf(_root, _data[j]);
-					read_thread_exit(_root);
+					Node_t* start_node = nullptr;
+					{
+						std::shared_lock<std::shared_mutex> lock(_root->mutex);
+						Node_t* start_node = _recursive_find_best_node(start_node, _data[j]);
+					}
 
-					write_thread_yield_enter(start_node);
-					_recursive_insert_data(_root, _data[j], j);
-					write_thread_exit(start_node);
+					{
+						std::lock_guard<std::shared_mutex> lock(start_node->mutex);
+						_recursive_insert_data(start_node, _data[j], j);
+					}
 				}
 			}
 		}
@@ -251,12 +237,10 @@ namespace gutil {
 		////////////////////////////////////////////////////////////
 		// Insertion operations
 		////////////////////////////////////////////////////////////
-		/// Reinsert data at given index (call only from single thread)
-		void reinsert(size_t idx);
-
+		
 		/// Single thread copy and move
 		size_t push_back(const Data_t &val) {
-			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
+			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 			Data_t copy(val);
 			return push_back(std::move(copy));
 		}
@@ -264,27 +248,8 @@ namespace gutil {
 		/// Add data to end of _data
 		size_t push_back(Data_t &&val);
 
-		/// Asynchronous move
-		size_t push_back_async(Data_t &&val) {return 1;};
-
 		/// Wait for all pending async insertions to complete
 		void flush() {};
-
-		////////////////////////////////////////////////////////////
-		// Summary information
-		////////////////////////////////////////////////////////////
-		Stats treeSummary() const {
-			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-			Stats stats{};
-
-			read_thread_yield_enter(_root);
-			_recursive_node_properties(_root, stats);
-			//if the bounding box was re-sized, the root may now have a negative depth
-			stats.max_depth -= _root->depth;
-			read_thread_exit(_root);
-
-			return stats;
-		}
 
 	private:
 		/// Determine if data belongs in the given bounding box (must be overridden)
@@ -294,7 +259,7 @@ namespace gutil {
 		// Recursive helper functions
 		////////////////////////////////////////////////////////////
 		/// Find best node to start insertion/search
-		Node_t* _recursive_find_first_leaf(const Node_t* node, const Data_t &val) const;
+		Node_t* _recursive_find_best_node(const Node_t* node, const Data_t &val) const;
 
 		/// Insert data into tree
 		int _recursive_insert_data(Node_t* node, const Data_t &val, const size_t idx);
@@ -308,12 +273,6 @@ namespace gutil {
 		/// Find all data indices in nodes that intersect the specified box
 		void _recursive_data_in_box(const Node_t* node, const Box_t& bbox,
 			std::vector<size_t>& data_indices) const;
-
-		/// Remove index from node and all descendants
-		void _recursive_remove_index(Node_t* node, const size_t idx);
-
-		/// Remove index from node and descendants (optimized with validity check)
-		void _recursive_remove_index(Node_t* node, size_t idx, const Data_t &val);
 
 		/// Expand root bounding box to contain new region
 		void _recursive_expand_bbox(const Box_t& new_bbox);
@@ -354,18 +313,20 @@ namespace gutil {
 
 		//set _root with rounded bounding box
 		_root = new Node_t(Box_t{low, high});
-		write_thread_yield_enter(_root);
-		resetDataIdx(_root);
-		write_thread_exit(_root);
+		{
+			std::lock_guard<std::shared_mutex> lock(_root->mutex);
+			resetDataIdx(_root);
+		}
 	}
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
-	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::get_data_in_box(
-		const Box_t& bbox, std::vector<size_t>& data_indices) const
+	std::vector<size_t> BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::get_data_in_box(
+		const Box_t& bbox) const
 	{
-		read_thread_yield_enter(_root);
+		std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
+
+		std::vector<size_t> data_indices;
 		_recursive_data_in_box(_root, bbox, data_indices);
-		read_thread_exit(_root);
 
 		//ensure that data_indices is sorted and has no duplicates
 		std::sort(data_indices.begin(), data_indices.end());
@@ -373,42 +334,34 @@ namespace gutil {
 		data_indices.erase(last, data_indices.end());
 
 		//return number of data indices found
-		return data_indices.size();
+		return data_indices;
 	}
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
 	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::push_back(DATA_T&& val)
 	{
-		std::shared_lock<std::shared_mutex> lock(_tree_mutex);
-		Node_t* start_node = _root;
-		if (read_thread_try_enter(_root))
-		{
-			start_node = _recursive_find_first_leaf(_root, val);
-			read_thread_exit(_root);
-		}
+		std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
+		Node_t* start_node = _recursive_find_best_node(_root, val);
 
+		//try to find the existing data
 		size_t idx = (size_t) -1;
-
-		read_thread_yield_enter(start_node);
 		idx = _recursive_find_index(start_node, val);
-		read_thread_exit(start_node);
 		if (idx!=(size_t) -1) {return idx;}
 
 		//data must be inserted
 		idx = _next_data_idx.fetch_add(1, std::memory_order_acq_rel);
-		if (_data.size() == idx+1) {_data.push_back(std::move(val));}
-		else if (_data.size() < idx) {
-			_data.resize(idx + 1);
-			_data[idx] = std::move(val);
-		}
-		else {
-			_data[idx] = std::move(val);
-		}
+		assert(idx < _data.size());
+		assert(_data[idx] == Data_t{});
+		_data[idx] = std::move(val);
 
 		//insert the data into the tree
-		write_thread_yield_enter(start_node);
-		[[maybe_unsused]] int flag = _recursive_insert_data(start_node, val, idx);
-		write_thread_exit(start_node);
+		int flag = 1;
+		{
+			flag = _recursive_insert_data(start_node, val, idx);
+
+			//TODO change to try_lock and append to queue if it fails
+			//then switch this thread to flush()
+		}
 		assert(flag==1);
 
 		return idx;
@@ -420,47 +373,38 @@ namespace gutil {
 	//////////////////////////////////////////////////////////////////////////////////////////////
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
 	OctreeParallelNode<DIM,N_DATA,T>* 
-		BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_find_first_leaf(
-			const OctreeParallelNode<DIM,N_DATA,T>* node, const Data_t &val) const
+		BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_find_best_node(
+			const OctreeParallelNode<DIM,N_DATA,T>* node,
+			const Data_t &val) const
 	{
-		//the read lock must be aquired before entering this node
-		assert(node->n_threads_visiting.load(std::memory_order_acquire) > 0);
-
-		if (!isValid(node->bbox, val)) {return nullptr;}
-
-		if (isLeaf(node)) {
-			return const_cast<OctreeParallelNode<DIM,N_DATA,T>*>(node);
+		if (!isValid(node->bbox, val))
+		{
+			return nullptr;
+		}
+		
+		if (isLeaf(node))
+		{
+			return const_cast<Node_t*>(node);
 		}
 
 		// Traverse to child containing data
 		for (int c = 0; c < N_CHILDREN; c++) {
 			if (isValid(node->children[c]->bbox, val)) {
-				if (read_thread_try_enter(node->children[c]))
-				{
-					auto best_node = _recursive_find_first_leaf(node->children[c], val);
-					read_thread_exit(node->children[c]);
-					return best_node;
-				}
-				else
-				{
-					return node->children[c];
-				}
+				return _recursive_find_best_node(node->children[c], val);
 			}
 		}
 
 		// Couldn't find a valid leaf
-		return nullptr;
+		return const_cast<Node_t*>(node);
 	}
 
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
 	int BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_insert_data(
-			OctreeParallelNode<DIM,N_DATA,T>* node, const Data_t &val, const size_t idx)
+			OctreeParallelNode<DIM,N_DATA,T>* node,
+			const Data_t &val,
+			const size_t idx)
 	{
-		//the write lock must be aquired before calling this and released after returning
-		//use write_thread_yield_enter followed by write_thread_exit for example.
-		assert(node->n_threads_visiting.load(std::memory_order_acquire) == -1);
-
 		//return 1 on success and -1 on fail, return 0 on data already exists
 		//debug sanity check
 		assert(isValid(node->bbox, val));
@@ -469,16 +413,14 @@ namespace gutil {
 		{
 			//recurse into child nodes
 
-			assert(node->data_idx == nullptr);
+			// assert(node->data_idx == nullptr);
 			int flag=-1; //failure flag
 
 			for (int c=0; c<N_CHILDREN; c++)
 			{
 				if (isValid(node->children[c]->bbox, val))
 				{
-					write_thread_yield_enter(node->children[c]);
 					flag = std::max(flag, _recursive_insert_data(node->children[c], val, idx));
-					write_thread_exit(node->children[c]);
 					if constexpr (SINGLE_DATA) {break;}
 				}
 			}
@@ -487,10 +429,14 @@ namespace gutil {
 		}
 		else
 		{
-			int flag = appendDataIdx(node, idx);
-			if (flag>=0) {return flag;} //either the data was found or it was successfully added
+			{
+				std::lock_guard<std::shared_mutex> lock(node->mutex);
+				int flag = appendDataIdx(node, idx);
+				if (flag>=0) {return flag;} //either the data was found or it was successfully added
 
-			_divide(node);
+				_divide(node);
+			}
+			
 			//retry now that the node is divided
 			//the lock for this node is already handled
 			return _recursive_insert_data(node, val, idx);
@@ -502,7 +448,6 @@ namespace gutil {
 			OctreeParallelNode<DIM,N_DATA,T>* node)
 	{
 		//the write lock must already be aquired for this node
-		assert(node->n_threads_visiting.load(std::memory_order_acquire) == -1);
 		assert(isLeaf(node));
 
 		//create child nodes
@@ -520,9 +465,7 @@ namespace gutil {
 			{
 				if (isValid(node->children[c]->bbox, val))
 				{
-					write_thread_yield_enter(node->children[c]);
 					[[maybe_unsused]] int flag = appendDataIdx(node->children[c], d_idx);
-					write_thread_exit(node->children[c]);
 					assert(flag==1);
 					if constexpr (SINGLE_DATA) {break;}
 				}
@@ -537,11 +480,10 @@ namespace gutil {
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
 	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
-		_recursive_find_index(const OctreeParallelNode<DIM,N_DATA,T>* node, const DATA_T &val) const
+		_recursive_find_index(
+			const OctreeParallelNode<DIM,N_DATA,T>* node,
+			const DATA_T &val) const
 	{
-		//the read lock must be aquired before entering this node
-		assert(node->n_threads_visiting.load(std::memory_order_acquire) > 0);
-
 		if (!isLeaf(node))
 		{
 			assert(node->data_idx==nullptr);
@@ -549,16 +491,14 @@ namespace gutil {
 			{
 				if (isValid(node->children[c]->bbox, val))
 				{
-					read_thread_yield_enter(node->children[c]);
 					const size_t result = _recursive_find_index(node->children[c], val);
-					read_thread_exit(node->children[c]);
-
 					if (result<size()) {return result;}
 				}
 			}
 		}
 		else 
 		{
+			std::shared_lock<std::shared_mutex> lock(node->mutex);
 			if (node->data_idx==nullptr) {return (size_t) -1;}
 
 			for (int i=0; i<node->cursor; i++)
@@ -571,41 +511,82 @@ namespace gutil {
 		return (size_t) -1;
 	}
 
+	/// Expand root bounding box to contain new region
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
-	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
-		_recursive_remove_index(OctreeParallelNode<DIM,N_DATA,T>* node, const size_t idx)
-	{
-		//the write lock must already be aquired for this node
-		assert(node->n_threads_visiting.load(std::memory_order_acquire) == -1);
-
-		if (node==nullptr) {return;}
-		removeDataIdx(node, idx);
-		for (int c=0; c<N_CHILDREN; c++)
-		{
-			if (node->children[c]==nullptr) {continue;}
-			write_thread_yield_enter(node->children[c]);
-			_recursive_remove_index(node->children[c], idx);
-			write_thread_exit(node->children[c]);
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_expand_bbox(const Box<DIM,T>& new_bbox) {
+		if (_root->bbox.contains(new_bbox)) {
+			return;
 		}
-	}
 
-	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
-	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
-		_recursive_remove_index(OctreeParallelNode<DIM,N_DATA,T>* node, const size_t idx, const DATA_T& val)
-	{
-		if (node==nullptr) {return;}
-		removeDataIdx(node, idx);
-		for (int c=0; c<N_CHILDREN; c++)
-		{
-			if (node->children[c]==nullptr) {continue;}
-			if (isValid(node->children[c]->bbox, val))
-			{
-				write_thread_yield_enter(node->children[c]);
-				_recursive_remove_index(node->children[c], idx, val);
-				write_thread_exit(node->children[c]);
+		// Double the bounding box and find best placement
+		Box_t expanded_root_bbox = T{2} * _root->bbox;
+		int max_vertices = -1;
+		int best_sibling_number = -1;
+
+		for (int c = 0; c < N_CHILDREN; c++) {
+			Point_t offset = _root->bbox.voxelvertex(c) - expanded_root_bbox.voxelvertex(c);
+			Box_t test_box = expanded_root_bbox + offset;
+			
+			int n_verts = 0;
+			for (int i = 0; i < N_CHILDREN; i++) {
+				if (test_box.contains(new_bbox.voxelvertex(i))) {
+					n_verts++;
+				}
+			}
+
+			if (n_verts > max_vertices) {
+				best_sibling_number = c;
+				max_vertices = n_verts;
 			}
 		}
+
+		// Create new root
+		Point_t offset = _root->bbox.voxelvertex(best_sibling_number) 
+		               - expanded_root_bbox.voxelvertex(best_sibling_number);
+		Box_t new_root_bbox = expanded_root_bbox + offset;
+
+		Node_t* old_root = _root;
+		_root = new Node_t(new_root_bbox, old_root->depth - 1);
+		_divide(_root);
+		
+		delete _root->children[best_sibling_number];
+		_root->children[best_sibling_number] = old_root;
+		old_root->parent = _root;
+
+		assert(_root->bbox.voxelvertex(best_sibling_number) == 
+		       old_root->bbox.voxelvertex(best_sibling_number));
+		
+		// Recursively expand if needed
+		if (max_vertices < N_CHILDREN) {
+			_recursive_expand_bbox(new_bbox);
+		}
 	}
 
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_data_in_box(
+		const OctreeParallelNode<DIM,N_DATA,T>* node,
+		const Box<DIM,T>& bbox,
+		std::vector<size_t>& data_indices) const
+	{
+		if (node==nullptr) {return;}
+		if(!bbox.intersects(node->bbox)) {return;}
+
+		if (node->data_idx)
+		{
+			std::shared_lock<std::shared_mutex> lock(node->mutex);
+			for (int d=0; d<node->cursor; d++) {
+				const size_t d_idx = node->data_idx[d]; 
+				if (isValid(bbox, _data[d_idx])) {data_indices.push_back(d_idx);}
+			}
+		}
 		
+
+		//recurse into children
+		for (int c = 0; c < N_CHILDREN; c++) {
+			_recursive_data_in_box(node->children[c], bbox, data_indices);
+		}
+
+		//note that data_indices may contain duplicate entries at this point,
+		//but all will be valid data
+	}
 }

@@ -39,7 +39,7 @@ void generate_points2(Octree_t& octree, const Index_t& N) {
 		#pragma omp parallel for collapse(2)
 	#else
 		//if openmp is not enabled, reserving space is better
-		octree.reserve(prod(N));
+		octree.resize(prod(N));
 	#endif
 
 	for (size_t i=0; i<N[0]; i++) {
@@ -72,7 +72,7 @@ void generate_points3(Octree_t& octree, const Index_t& N) {
 		octree.resize(prod(N));
 		#pragma omp parallel for collapse(3)
 	#else
-		octree.reserve(prod(N));
+		octree.resize(prod(N));
 	#endif
 	
 	for (size_t i=0; i<N[0]; i++) {
@@ -132,10 +132,9 @@ int main(int argc, char* argv[]) {
 	// 		  << "memory overhead\n";
 	// std::cout << "The data itself is using " << storage_memory_in_bytes*byte2MiB << " MiB\n";
 
-	// Box_t search_box(Point_t{0}, 0.5*Point_t{N});
-	// std::vector<size_t> found_idx;
-	// octree.get_data_in_box(search_box, found_idx);
-	// std::cout << "The octree found " << found_idx.size() << " points in the box: " << search_box << std::endl;
+	Box_t search_box(Point_t{0}, 0.5*Point_t{N});
+	std::vector<size_t> found_idx = octree.get_data_in_box(search_box);
+	std::cout << "The octree found " << found_idx.size() << " points in the box: " << search_box << std::endl;
 
 	return 0;
 }
