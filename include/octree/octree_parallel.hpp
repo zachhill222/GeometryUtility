@@ -4,7 +4,6 @@
 #include <vector>
 
 #include <cstring>
-#include <cmath>
 
 #include <mutex>
 #include <shared_mutex>
@@ -27,9 +26,11 @@
 /// - flush() waits until all pending tree updates complete
 ///
 /// Thread safety:
+/// - Calling push_back() should only be done from a single thread
 /// - Multiple threads can call push_back_async() concurrently
 /// - If the same new data is inserted by multiple threads, each gets a different index but only
-///   one is correct. If data already exists in the tree, the correct index is safely returned.
+///   one is correct. This will result in a runtime error.
+///   If data already exists in the tree, the correct index is safely returned.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace gutil {
@@ -41,13 +42,7 @@ namespace gutil {
 	///                            If false, data goes in all overlapping leaves.
 	/// @tparam DIM              Spatial dimension (typically 3)
 	/// @tparam N_DATA           Max data indices per leaf node
-	/// @tparam T                Floating-point type for bounding boxes
-	/// @tparam BUFFER_CAPACITY  Size of the thread buffers for data to be immediately put into
-	/// @tparam BUFFER_ON_STACK  When set to true, put the thread buffers on the stack.
-	///                             Otherwise, put them on the heap. If BUFFER_CAPACITY is large enough
-	///                             so that stack overflow is a concern, then this should be false.
-	/// @tparam N_INSERTER_THREADS The number of threads responsible for inserting the data. Must be between
-	///                            1 and N_CHILDREN (4 in 2D, 8 in 3D)
+	/// @tparam T                Type that emulates the real line (e.g., float) for bounding boxes
 	/////////////////////////////////////////////////
 	template<
 		typename DATA_T,
@@ -110,7 +105,7 @@ namespace gutil {
 
 		void shrink_to_fit() noexcept {
 			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
-			_data.resize(_next_data_idx.load());
+			_data.resize(_next_data_idx.load(std::memory_order_acquire));
 			_data.shrink_to_fit();
 		}
 
@@ -206,9 +201,10 @@ namespace gutil {
 		inline const Box_t& bbox() const {return _root->bbox;}
 
 		void resize_to_fit_data(const Data_t& val) {
-			Box_t new_bbox = _root->bbox;
-			while (!isValid(new_bbox, val)) {new_bbox = T(2)*new_bbox;}
-			set_bbox(new_bbox);
+			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
+			while (!isValid(_root->bbox, val)) {
+				_recursive_expand_bbox(T{2} * _root->bbox);
+			}
 		}
 
 		void set_bbox(const Box_t& new_bbox) {
@@ -237,14 +233,22 @@ namespace gutil {
 		////////////////////////////////////////////////////////////
 		
 		/// Single thread copy and move
-		size_t push_back(const Data_t &val) {
+		size_t push_back(const Data_t& val) {
 			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 			Data_t copy(val);
 			return push_back(std::move(copy));
 		}
 
-		/// Add data to end of _data
-		size_t push_back(Data_t &&val);
+		/// Add data to end of _data. Can be called asynchronously, but does not use the queue.
+		size_t push_back(Data_t&& val);
+
+		/// Asychronous push back. To use this method, we must have:
+		/// 	1) every data value inserted in a parallel batch is unique
+		///	 	2) resize() must be called ahead of time so that no _data allocations
+		///              are required
+		///     3) (optional) set the bounding box (via set_bbox()) to encapulate all
+		/// 			 new data values
+		size_t push_back_async(Data_t&& val);
 
 		/// Wait for all pending async insertions to complete
 		void flush();
@@ -332,13 +336,53 @@ namespace gutil {
 		auto last = std::unique(data_indices.begin(), data_indices.end());
 		data_indices.erase(last, data_indices.end());
 
-		//return number of data indices found
+		//return data indices found (sorted, no duplicates, all valid)
 		return data_indices;
 	}
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
 	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::push_back(DATA_T&& val)
 	{
+		if (!isValid(_root->bbox, val))
+		{
+			//enforces unique tree lock
+			resize_to_fit_data(val);
+		}
+
+		std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
+		Node_t* start_node = _recursive_find_best_node(_root, val);
+
+		//try to find the existing data
+		size_t idx = (size_t) -1;
+		idx = _recursive_find_index(start_node, val);
+		if (idx!=(size_t) -1) {return idx;}
+
+		//data must be inserted
+		idx = _next_data_idx.fetch_add(1, std::memory_order_acq_rel);
+		assert(idx == _data.size());
+		_data.push_back(std::move(val));
+
+		//insert the data into the tree
+		int flag = _recursive_insert_data<true>(start_node, val, idx);
+
+		if (flag==-1)
+		{
+			throw std::runtime_error("BasicParallelOctree: couldn't insert data at index " + std::to_string(idx));
+		}
+
+
+		return idx;
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::push_back_async(DATA_T&& val)
+	{
+		if (!isValid(_root->bbox, val))
+		{
+			//enforces unique tree lock
+			resize_to_fit_data(val);
+		}
+
 		std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 		Node_t* start_node = _recursive_find_best_node(_root, val);
 
@@ -363,9 +407,6 @@ namespace gutil {
 				while(!_queue.try_push(std::move(idx_copy))) {}
 				flush(); //change to an inserter thread until the queue is empty
 			}
-
-			//TODO change to try_lock and append to queue if it fails
-			//then switch this thread to flush()
 		}
 		return idx;
 	}
@@ -408,7 +449,7 @@ namespace gutil {
 		}
 
 		// Traverse to child containing data
-		for (int c = 0; c < N_CHILDREN; c++) {
+		for (int c=0; c<N_CHILDREN; c++) {
 			if (isValid(node->children[c]->bbox, val)) {
 				return _recursive_find_best_node(node->children[c], val);
 			}
@@ -504,7 +545,7 @@ namespace gutil {
 			{
 				if (isValid(node->children[c]->bbox, val))
 				{
-					[[maybe_unsused]] int flag = appendDataIdx(node->children[c], d_idx);
+					[[maybe_unused]] int flag = appendDataIdx(node->children[c], d_idx);
 					assert(flag==1);
 					if constexpr (SINGLE_DATA) {break;}
 				}
@@ -523,6 +564,9 @@ namespace gutil {
 			const OctreeParallelNode<DIM,N_DATA,T>* node,
 			const DATA_T &val) const
 	{
+		if (node==nullptr) {return (size_t) -1;}
+		if (!isValid(node->bbox, val)) {return (size_t) -1;}
+
 		if (!isLeaf(node))
 		{
 			assert(node->data_idx==nullptr);

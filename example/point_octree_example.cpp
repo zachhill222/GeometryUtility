@@ -39,7 +39,7 @@ void generate_points2(Octree_t& octree, const Index_t& N) {
 		#pragma omp parallel for collapse(2)
 	#else
 		//if openmp is not enabled, reserving space is better
-		octree.resize(prod(N));
+		octree.reserve(prod(N));
 	#endif
 
 	for (size_t i=0; i<N[0]; i++) {
@@ -50,7 +50,11 @@ void generate_points2(Octree_t& octree, const Index_t& N) {
 			//push_back_async defaults to push_back. This can still be called in parallel, but
 			//it locks the entire tree with a lock_guard mutex. Data can be searched in parallel
 			//if no data is currently being inserted.
-			[[maybe_unused]] size_t stored_idx = octree.push_back(Point_t{i,j});
+			#ifdef _OPENMP
+				octree.push_back_async(Point_t{i,j});
+			#else
+				octree.push_back(Point_t{i,j});
+			#endif
 		}
 	}
 
@@ -72,13 +76,17 @@ void generate_points3(Octree_t& octree, const Index_t& N) {
 		octree.resize(prod(N));
 		#pragma omp parallel for collapse(3)
 	#else
-		octree.resize(prod(N));
+		octree.reserve(prod(N));
 	#endif
 	
 	for (size_t i=0; i<N[0]; i++) {
 		for (size_t j=0; j<N[1]; j++) {
 			for (size_t k=0; k<N[2]; k++) {
-				octree.push_back(Point_t{i,j,k});
+				#ifdef _OPENMP
+					octree.push_back_async(Point_t{i,j,k});
+				#else
+					octree.push_back(Point_t{i,j,k});
+				#endif
 			}
 		}
 	}
@@ -105,6 +113,7 @@ int main(int argc, char* argv[]) {
 	//to help avoid floating point errors, the bounding box will be expanded to have
 	//power of 2 coordinates.
 	Octree_t octree(Box_t{Point_t{0}, Point_t{N}});
+	// Octree_t octree;
 
 	if constexpr (DIMENSION==2) {
 		generate_points2(octree, N);

@@ -162,7 +162,7 @@ namespace gutil {
 			alignas(64) std::atomic<size_t> head{0};
 			alignas(64) std::atomic<size_t> tail{0};
 			alignas(64) std::atomic<size_t> buffer_bumps{0};
-			static constexpr size_t CAPACITY = 1024;
+			static constexpr size_t CAPACITY = 2048;
 			DATA_T queue[CAPACITY];
 	};
 }
