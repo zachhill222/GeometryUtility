@@ -85,7 +85,7 @@ namespace gutil {
 		// Data storage
 		std::vector<Data_t> _data;
 		std::atomic<size_t> _next_data_idx{0};
-
+		MultipleInMultipleOut<size_t> _queue;
 	public:
 		////////////////////////////////////////////////////////////
 		// Construction and destruction
@@ -221,13 +221,11 @@ namespace gutil {
 				for (size_t j = 0; j < _data.size(); j++) {
 					Node_t* start_node = nullptr;
 					{
-						std::shared_lock<std::shared_mutex> lock(_root->mutex);
 						Node_t* start_node = _recursive_find_best_node(start_node, _data[j]);
 					}
 
 					{
-						std::lock_guard<std::shared_mutex> lock(start_node->mutex);
-						_recursive_insert_data(start_node, _data[j], j);
+						_recursive_insert_data<true>(start_node, _data[j], j);
 					}
 				}
 			}
@@ -249,7 +247,7 @@ namespace gutil {
 		size_t push_back(Data_t &&val);
 
 		/// Wait for all pending async insertions to complete
-		void flush() {};
+		void flush();
 
 	private:
 		/// Determine if data belongs in the given bounding box (must be overridden)
@@ -262,6 +260,7 @@ namespace gutil {
 		Node_t* _recursive_find_best_node(const Node_t* node, const Data_t &val) const;
 
 		/// Insert data into tree
+		template<bool WAIT>
 		int _recursive_insert_data(Node_t* node, const Data_t &val, const size_t idx);
 
 		/// Divide a leaf node into children
@@ -357,14 +356,35 @@ namespace gutil {
 		//insert the data into the tree
 		int flag = 1;
 		{
-			flag = _recursive_insert_data(start_node, val, idx);
+			flag = _recursive_insert_data<false>(start_node, val, idx);
+			if (flag == -1)
+			{
+				size_t idx_copy = idx;
+				while(!_queue.try_push(std::move(idx_copy))) {}
+				flush(); //change to an inserter thread until the queue is empty
+			}
 
 			//TODO change to try_lock and append to queue if it fails
 			//then switch this thread to flush()
 		}
-		assert(flag==1);
-
 		return idx;
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::flush()
+	{
+		size_t idx = (size_t) -1;
+		while (_queue.try_pop(idx)) {
+			assert(idx < (size_t) -1);
+
+			//insert data until successful
+			int flag = _recursive_insert_data<true>(_root, _data[idx], idx);
+
+			if (flag == -1)
+			{
+				throw std::runtime_error("BasicParallelOctree: couldn't insert data at index " + std::to_string(idx));
+			}
+		}
 	}
 
 
@@ -398,8 +418,8 @@ namespace gutil {
 		return const_cast<Node_t*>(node);
 	}
 
-
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	template<bool WAIT>
 	int BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_insert_data(
 			OctreeParallelNode<DIM,N_DATA,T>* node,
 			const Data_t &val,
@@ -420,7 +440,7 @@ namespace gutil {
 			{
 				if (isValid(node->children[c]->bbox, val))
 				{
-					flag = std::max(flag, _recursive_insert_data(node->children[c], val, idx));
+					flag = std::max(flag, _recursive_insert_data<WAIT>(node->children[c], val, idx));
 					if constexpr (SINGLE_DATA) {break;}
 				}
 			}
@@ -430,16 +450,35 @@ namespace gutil {
 		else
 		{
 			{
-				std::lock_guard<std::shared_mutex> lock(node->mutex);
-				int flag = appendDataIdx(node, idx);
-				if (flag>=0) {return flag;} //either the data was found or it was successfully added
+				if constexpr (WAIT)
+				{
+					std::lock_guard<std::shared_mutex> lock(node->mutex);
+					int flag = appendDataIdx(node, idx);
+					if (flag>=0) {return flag;}
 
-				_divide(node);
+					_divide(node);
+					return _recursive_insert_data<WAIT>(node, val, idx);
+				}
+				else
+				{
+					std::unique_lock<std::shared_mutex> lock(node->mutex, std::try_to_lock);
+					if (lock.owns_lock())
+					{
+						int flag = appendDataIdx(node, idx);
+						if (flag>=0) {return flag;} //either the data was found or it was successfully added
+
+						_divide(node);
+
+						//retry now that the node is divided
+						lock.unlock();
+						return _recursive_insert_data<WAIT>(node, val, idx);
+					} else
+					{
+						//failed to insert data
+						return -1;
+					}
+				}
 			}
-			
-			//retry now that the node is divided
-			//the lock for this node is already handled
-			return _recursive_insert_data(node, val, idx);
 		}
 	}
 
