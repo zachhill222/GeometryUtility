@@ -16,14 +16,10 @@ static_assert(DIMENSION==2 or DIMENSION==3, "test is enabled for DIMENSION 2 or 
 // if these buffers are large, they should be allocated on the heap
 // if these buffers are too small, they might fill up
 // this defaults to true in thread_queue.hpp but is copied here for visibility.
-#ifndef GUTIL_OCTREE_BUFFER_USE_STACK
-	#define GUTIL_OCTREE_BUFFER_USE_STACK true
-#endif
-
 
 
 // using Scalar_t = gutil::FixedPoint<int32_t>;
-using Scalar_t = double;
+using Scalar_t = float;
 using Octree_t = gutil::PointOctree<DIMENSION,Scalar_t,128>;
 using Index_t  = gutil::Point<DIMENSION,size_t>;
 using Point_t  = gutil::Point<DIMENSION,Scalar_t>;

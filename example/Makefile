@@ -4,7 +4,7 @@ INCLUDE = -I../include
 CXX        = g++ -std=c++20
 OPT        = -O0
 PAR        =
-DEBUG      = -pg -g3 -Wall -fsanitize=thread
+DEBUG      = -pg -g -Wall #-fsanitize=thread
 
 #redefine for testing optimizations
 OPT        = -O3
@@ -15,10 +15,10 @@ DEBUG      = -DNDEBUG
 CC = $(CXX) $(OPT) $(PAR) $(DEBUG)
 
 #testing defines
-DIM         = -DDIMENSION=3
+DIM        = -DDIMENSION=3
 
 #final defines
-DEFINES = ${DIM} #${OCT_BUFFER}
+DEFINES = ${DIM}
 
 point:
 	${CC} ${INCLUDE} ${DEFINES} point_octree_example.cpp -o point_octree_example

@@ -7,6 +7,8 @@
 
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
+#include <chrono>
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
@@ -77,10 +79,20 @@ namespace gutil {
 		Node_t* _root = nullptr;
 		mutable std::shared_mutex _tree_mutex; //lock when doing large tree changes
 
+		// Thread management
+		mutable std::mutex _thread_manage_mutex; //lock when determining which threads should change tasks
+		mutable int n_flushing_threads{0};
+		static constexpr int n_max_flushing_threads = 4;
+
 		// Data storage
 		std::vector<Data_t> _data;
 		std::atomic<size_t> _next_data_idx{0};
-		MultipleInMultipleOut<size_t> _queue;
+
+		struct QueueData_t {
+			Node_t* node;
+			size_t  idx;
+		};
+		MultipleInMultipleOut<QueueData_t> _queue;
 	public:
 		////////////////////////////////////////////////////////////
 		// Construction and destruction
@@ -110,17 +122,17 @@ namespace gutil {
 		}
 
 		bool empty() const noexcept {
-			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
+			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 			return _data.empty();
 		}
 
 		size_t size() const noexcept {
-			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
+			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 			return _next_data_idx.load(std::memory_order_acquire);
 		}
 
 		size_t capacity() const noexcept {
-			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
+			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 			return _data.capacity();
 		}
 
@@ -180,7 +192,6 @@ namespace gutil {
 		/// Returns index if found, (size_t)-1 if not found
 		size_t find(const Data_t& val) const {
 			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
-			std::shared_lock<std::shared_mutex> lock(_root->mutex);
 			const size_t result = _recursive_find_index(_root, val);
 			return result;
 		}
@@ -251,7 +262,13 @@ namespace gutil {
 		size_t push_back_async(Data_t&& val);
 
 		/// Wait for all pending async insertions to complete
-		void flush();
+		void flush() {
+			while (!_queue.empty()) {
+				if (!_switch_to_flush()) {
+					std::this_thread::yield();
+				}
+			}
+		}
 
 	private:
 		/// Determine if data belongs in the given bounding box (must be overridden)
@@ -283,7 +300,9 @@ namespace gutil {
 		/// Check if there is duplicated data
 		void _recursive_duplicate_data(const Node_t* node) const;
 
-		
+		/// Switch a thread from inserting to flushing if possible
+		/// Return false if the thread didn't switch.
+		bool _switch_to_flush();
 
 		/////////////////////////////////////////////////
 		/// Convenience and debug methods
@@ -403,61 +422,117 @@ namespace gutil {
 			flag = _recursive_insert_data<false>(start_node, val, idx);
 			if (flag == -1)
 			{
-				size_t idx_copy = idx;
-				while(!_queue.try_push(std::move(idx_copy))) {}
-				flush(); //change to an inserter thread until the queue is empty
+				[[maybe_unused]] bool success = _queue.push({start_node, idx});
+				assert(success);
+				_switch_to_flush(); //change to an inserter thread until the queue is empty
 			}
 		}
 		return idx;
 	}
 
-	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
-	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::flush()
-	{
-		size_t idx = (size_t) -1;
-		while (_queue.try_pop(idx)) {
-			assert(idx < (size_t) -1);
-
-			//insert data until successful
-			int flag = _recursive_insert_data<true>(_root, _data[idx], idx);
-
-			if (flag == -1)
-			{
-				throw std::runtime_error("BasicParallelOctree: couldn't insert data at index " + std::to_string(idx));
-			}
-		}
-	}
-
-
-	//////////////////////////////////////////////////////////////////////////////////////////////
-	////////////////////////////    RECURSIVE METHOD IMPLEMNTATION    ////////////////////////////
-	//////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	///////////////////////////////    CORE METHOD IMPLEMNTATION    ///////////////////////////////
+	///////////////////////////////////////////////////////////////////////////////////////////////
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
 	OctreeParallelNode<DIM,N_DATA,T>* 
 		BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_find_best_node(
 			const OctreeParallelNode<DIM,N_DATA,T>* node,
 			const Data_t &val) const
 	{
-		if (!isValid(node->bbox, val))
+		if (node==nullptr) {return nullptr;}
+		if (!isValid(node->bbox, val)) {return nullptr;}
+
+		bool is_leaf_node = false;
 		{
-			return nullptr;
-		}
-		
-		if (isLeaf(node))
-		{
-			return const_cast<Node_t*>(node);
+			std::shared_lock<std::shared_mutex> lock(node->mutex);
+			is_leaf_node = isLeaf(node);
 		}
 
-		// Traverse to child containing data
-		for (int c=0; c<N_CHILDREN; c++) {
-			if (isValid(node->children[c]->bbox, val)) {
-				return _recursive_find_best_node(node->children[c], val);
+		if (!is_leaf_node)
+		{
+			// Traverse to child containing data
+			if constexpr (SINGLE_DATA)
+			{
+				for (int c=0; c<N_CHILDREN; c++) {
+					assert(node->children[c]);
+					if (isValid(node->children[c]->bbox, val)) {
+						return _recursive_find_best_node(node->children[c], val);
+					}
+				}
+			}
+			else
+			{
+				int n_valid_children = 0;
+				int last_valid_child = -1;
+				for (int c=0; c<N_CHILDREN; c++) {
+					assert(node->children[c]);
+					if (isValid(node->children[c]->bbox, val)) {
+						n_valid_children++;
+						last_valid_child = c;
+					}
+				}
+
+				if (n_valid_children>1) {
+					//we are at a branch node
+					return const_cast<Node_t*>(node);
+				}
+				else if (n_valid_children == 1) {
+					//only one valid child, find a better node
+					return _recursive_find_best_node(node->children[last_valid_child], val);
+				}
+				else {
+					throw std::runtime_error("BasicParallelOctree::_recursive_find_best_node - couldn't find valid child in a valid node");
+				}
 			}
 		}
 
 		// Couldn't find a valid leaf
 		return const_cast<Node_t*>(node);
 	}
+
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
+		_recursive_find_index(
+			const OctreeParallelNode<DIM,N_DATA,T>* node,
+			const DATA_T &val) const
+	{
+		if (node==nullptr) {return (size_t) -1;}
+		if (!isValid(node->bbox, val)) {return (size_t) -1;}
+
+		
+		//make a shared lock all the way down
+		std::shared_lock<std::shared_mutex> lock(node->mutex);
+
+		if (!isLeaf(node))
+		{
+			assert(node->data_idx==nullptr);
+			assert(node->cursor==0);
+
+			for (int c=0; c<N_CHILDREN; c++)
+			{
+				assert(node->children[c]);
+				if (isValid(node->children[c]->bbox, val))
+				{
+					const size_t result = _recursive_find_index(node->children[c], val);
+					if (result<size()) {return result;}
+				}
+			}
+		}
+		else
+		{
+			if (node->data_idx==nullptr) {return (size_t) -1;}
+
+			for (int i=0; i<node->cursor; i++)
+			{
+				const size_t d_idx = node->data_idx[i];
+				if (_data[d_idx]==val) {return d_idx;}
+			}
+		}
+
+		return (size_t) -1;
+	}
+
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
 	template<bool WAIT>
@@ -467,59 +542,67 @@ namespace gutil {
 			const size_t idx)
 	{
 		//return 1 on success and -1 on fail, return 0 on data already exists
-		//debug sanity check
-		assert(isValid(node->bbox, val));
+		if (node == nullptr) {return -1;}
+		if (!isValid(node->bbox, val)) {return -1;}
+
+		//make shared lock on the way down
+		std::shared_lock<std::shared_mutex> read_lock(node->mutex);
+
 		
 		if (!isLeaf(node))
 		{
-			//recurse into child nodes
+			assert(node->data_idx==nullptr);
+			assert(node->cursor==0);
 
-			// assert(node->data_idx == nullptr);
 			int flag=-1; //failure flag
-
 			for (int c=0; c<N_CHILDREN; c++)
 			{
+				assert(node->children[c]);
 				if (isValid(node->children[c]->bbox, val))
 				{
 					flag = std::max(flag, _recursive_insert_data<WAIT>(node->children[c], val, idx));
 					if constexpr (SINGLE_DATA) {break;}
 				}
 			}
-
 			return flag;
 		}
 		else
 		{
+			//the node is PROBABLY a leaf node
+			read_lock.unlock();
+			std::unique_lock<std::shared_mutex> write_lock(node->mutex, std::try_to_lock);
+			if (!write_lock.owns_lock())
 			{
-				if constexpr (WAIT)
+				if constexpr (WAIT) {write_lock.lock();}
+				else {return -1;}
+			}
+
+			//some other thread divided this node since we checked last
+			if (!isLeaf(node)) {
+				write_lock.unlock();
+				return _recursive_insert_data<WAIT>(node, val, idx);
+			}
+
+			//we have the unique lock and must append the data
+			int flag = appendDataIdx(node, idx);
+			if (flag>=0) {return flag;}
+
+			//the data insertion was unsuccessful
+			assert(node->cursor==N_DATA);
+			_divide(node);
+
+			//insert into children while we have the unique lock held
+			flag=-1; //reset failure flag
+			for (int c=0; c<N_CHILDREN; c++)
+			{
+				assert(node->children[c]);
+				if (isValid(node->children[c]->bbox, val))
 				{
-					std::lock_guard<std::shared_mutex> lock(node->mutex);
-					int flag = appendDataIdx(node, idx);
-					if (flag>=0) {return flag;}
-
-					_divide(node);
-					return _recursive_insert_data<WAIT>(node, val, idx);
-				}
-				else
-				{
-					std::unique_lock<std::shared_mutex> lock(node->mutex, std::try_to_lock);
-					if (lock.owns_lock())
-					{
-						int flag = appendDataIdx(node, idx);
-						if (flag>=0) {return flag;} //either the data was found or it was successfully added
-
-						_divide(node);
-
-						//retry now that the node is divided
-						lock.unlock();
-						return _recursive_insert_data<WAIT>(node, val, idx);
-					} else
-					{
-						//failed to insert data
-						return -1;
-					}
+					flag = std::max(flag, _recursive_insert_data<WAIT>(node->children[c], val, idx));
+					if constexpr (SINGLE_DATA) {break;}
 				}
 			}
+			return flag;
 		}
 	}
 
@@ -527,8 +610,14 @@ namespace gutil {
 	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_divide(
 			OctreeParallelNode<DIM,N_DATA,T>* node)
 	{
-		//the write lock must already be aquired for this node
-		assert(isLeaf(node));
+		//the unique lock must be engaged before calling
+		if (node==nullptr) {return;}
+		if (!isLeaf(node)) {return;}
+
+		// std::cout << "_divide:\n" << node << std::endl;
+
+		//we are the dividing thread
+		node->is_leaf.store(false, std::memory_order_release);
 
 		//create child nodes
 		for (int c=0; c<N_CHILDREN; c++) {
@@ -553,46 +642,18 @@ namespace gutil {
 		}
 
 		// Clear parent node
-		node->is_leaf.store(false);
 		clearDataIdx(node);
+		assert(node->data_idx==nullptr);
+		assert(node->cursor==0);
 	}
 
 
-	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
-	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
-		_recursive_find_index(
-			const OctreeParallelNode<DIM,N_DATA,T>* node,
-			const DATA_T &val) const
-	{
-		if (node==nullptr) {return (size_t) -1;}
-		if (!isValid(node->bbox, val)) {return (size_t) -1;}
+	
 
-		if (!isLeaf(node))
-		{
-			assert(node->data_idx==nullptr);
-			for (int c=0; c<N_CHILDREN; c++)
-			{
-				if (isValid(node->children[c]->bbox, val))
-				{
-					const size_t result = _recursive_find_index(node->children[c], val);
-					if (result<size()) {return result;}
-				}
-			}
-		}
-		else 
-		{
-			std::shared_lock<std::shared_mutex> lock(node->mutex);
-			if (node->data_idx==nullptr) {return (size_t) -1;}
 
-			for (int i=0; i<node->cursor; i++)
-			{
-				const size_t d_idx = node->data_idx[i];
-				if (_data[d_idx]==val) {return d_idx;}
-			}
-		}
-
-		return (size_t) -1;
-	}
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	/////////////////////////    OTHER RECURSIVE METHOD IMPLEMNTATION    /////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////////////////
 
 	/// Expand root bounding box to contain new region
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
@@ -630,7 +691,11 @@ namespace gutil {
 
 		Node_t* old_root = _root;
 		_root = new Node_t(new_root_bbox, old_root->depth - 1);
-		_divide(_root);
+		{
+			std::lock_guard<std::shared_mutex> lock(_root->mutex);
+			_divide(_root);
+		}
+		
 		
 		delete _root->children[best_sibling_number];
 		_root->children[best_sibling_number] = old_root;
@@ -653,8 +718,8 @@ namespace gutil {
 	{
 		if (node==nullptr) {return;}
 		if(!bbox.intersects(node->bbox)) {return;}
-
-		if (node->data_idx)
+		
+		if (isLeaf(node))
 		{
 			std::shared_lock<std::shared_mutex> lock(node->mutex);
 			for (int d=0; d<node->cursor; d++) {
@@ -662,14 +727,63 @@ namespace gutil {
 				if (isValid(bbox, _data[d_idx])) {data_indices.push_back(d_idx);}
 			}
 		}
-		
-
-		//recurse into children
-		for (int c = 0; c < N_CHILDREN; c++) {
-			_recursive_data_in_box(node->children[c], bbox, data_indices);
+		else
+		{
+			//recurse into children
+			for (int c = 0; c < N_CHILDREN; c++) {
+				_recursive_data_in_box(node->children[c], bbox, data_indices);
+			}
 		}
 
 		//note that data_indices may contain duplicate entries at this point,
 		//but all will be valid data
+	}
+
+
+	///////////////////////////////////////////////////////////////////////////
+	//////////////////////// OTHER PRIVATE METHODS ////////////////////////////
+	///////////////////////////////////////////////////////////////////////////
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	bool BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_switch_to_flush()
+	{
+		{
+			std::lock_guard<std::mutex> lock(_thread_manage_mutex);
+			if (n_flushing_threads >= n_max_flushing_threads) {return false;}
+			n_flushing_threads++;
+			if (n_flushing_threads>n_max_flushing_threads)
+			{
+				throw std::runtime_error("BasicParallelOctree::_switch_to_flush() - flushing thread count exceeds maximum");
+			}
+		}
+		
+		QueueData_t data;
+		while (_queue.pop(data)) {
+			assert(data.idx < (size_t) -1);
+			assert(data.node);
+			
+			//insert data until successful
+			int flag = _recursive_insert_data<true>(data.node, _data[data.idx], data.idx);
+
+			if (flag == -1)
+			{
+				throw std::runtime_error("BasicParallelOctree::_switch_to_flush() - couldn't insert data at index " + std::to_string(data.idx));
+			}
+
+			if (flag == 0)
+			{
+				throw std::runtime_error("BasicParallelOctree::_switch_to_flush() - data at index " + std::to_string(data.idx) + " was already inserted");
+			}
+		}
+
+		{
+			std::lock_guard<std::mutex> lock(_thread_manage_mutex);
+			n_flushing_threads--;
+			if (n_flushing_threads<0)
+			{
+				throw std::runtime_error("BasicParallelOctree::_switch_to_flush() - flushing thread count is negative");
+			}
+		}
+
+		return true;
 	}
 }

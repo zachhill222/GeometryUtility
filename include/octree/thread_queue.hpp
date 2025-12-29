@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cassert>
+#include <deque>
+
 
 #include <thread>
 #include <mutex>
 #include <shared_mutex>
 #include <atomic>
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// Single producer single consumer queue
@@ -118,51 +121,101 @@ namespace gutil {
 	template<typename DATA_T>
 	class MultipleInMultipleOut {
 	public:
-		MultipleInMultipleOut() : queue{} {}
+		MultipleInMultipleOut() : dq{} {}
 
 		bool empty() const
 		{
-			return head.load(std::memory_order_seq_cst) 
-						== tail.load(std::memory_order_seq_cst);
+			std::shared_lock<std::shared_mutex> lock(mutex);
+			return dq.empty();
+		}
+
+		size_t capacity() const
+		{
+			std::shared_lock<std::shared_mutex> lock(mutex);
+			return dq.size();
+		}
+
+		void clear()
+		{
+			std::lock_guard<std::shared_mutex> lock(mutex);
+			dq.clear();
+		}
+
+		
+
+		size_t size() const
+		{
+			std::shared_lock<std::shared_mutex> lock(mutex);
+			return dq.size();
+		}
+
+		//non blocking pop
+		template<typename Predicate>
+		bool try_pop(DATA_T& item, const Predicate& pred) {
+			std::unique_lock<std::shared_mutex> lock(mutex, std::try_to_lock);
+			if (!lock.owns_lock()) {return false;}
+			else {return pop_unlocked(item, pred);}
 		}
 
 		bool try_pop(DATA_T& item) {
-			std::lock_guard<std::mutex> lock(mtx);
-
-			size_t current_head = head.load(std::memory_order_acquire);
-
-			if (current_head == tail.load(std::memory_order_acquire)) {
-				return false;  // Queue empty
-			}
-
-			item = queue[current_head];
-			head.store((current_head + 1) % CAPACITY, std::memory_order_release);
-			return true;
+			std::unique_lock<std::shared_mutex> lock(mutex, std::try_to_lock);
+			if (!lock.owns_lock()) {return false;}
+			else {return pop_unlocked(item);}
 		}
 
+		//non blocking push
 		bool try_push(DATA_T&& item) {
-			std::lock_guard<std::mutex> lock(mtx);
+			std::unique_lock<std::shared_mutex> lock(mutex, std::try_to_lock);
+			if (!lock.owns_lock()) {return false;}
+			else {return push_unlocked(std::move(item));}
+		}
 
-			size_t current_tail = tail.load(std::memory_order_acquire);
-			size_t next_tail = (current_tail + 1) % CAPACITY;
+		//blocking pop
+		template<typename Predicate>
+		bool pop(DATA_T& item, const Predicate& pred) {
+			std::lock_guard<std::shared_mutex> lock(mutex);
+			return pop_unlocked(item, pred);
+		}
 
-			if (next_tail == head.load(std::memory_order_acquire)) {
-				buffer_bumps.fetch_add(1, std::memory_order_relaxed); //buffer_bumps is mostly of profiling
-				return false;  //queue full
-			}
+		bool pop(DATA_T& item) {
+			std::lock_guard<std::shared_mutex> lock(mutex);
+			return pop_unlocked(item);
+		}
 
-			queue[current_tail] = std::move(item);
-			tail.store(next_tail, std::memory_order_release);
+		//blocking push
+		bool push(DATA_T&& item) {
+			std::lock_guard<std::shared_mutex> lock(mutex);
+			return push_unlocked(std::move(item));
+		}
+
+		inline bool push(const DATA_T& item) {
+			DATA_T new_item{item};
+			return push(std::move(new_item));
+		}
+
+	private:
+		mutable std::shared_mutex mutex;
+		std::deque<DATA_T> dq;
+
+		bool push_unlocked(DATA_T&& item) {
+			dq.push_back(std::move(item));
 			return true;
 		}
 
+		template<typename Predicate>
+		bool pop_unlocked(DATA_T& item, const Predicate& pred) {
+			if (dq.empty()) {return false;}
+			if (!pred(dq.front())) {return false;}
+			item = std::move(dq.front());
+			dq.pop_front();
+			return true;
+		}
 
-		private:
-			mutable std::mutex mtx;
-			alignas(64) std::atomic<size_t> head{0};
-			alignas(64) std::atomic<size_t> tail{0};
-			alignas(64) std::atomic<size_t> buffer_bumps{0};
-			static constexpr size_t CAPACITY = 2048;
-			DATA_T queue[CAPACITY];
+		bool pop_unlocked(DATA_T& item) {
+			if (dq.empty()) {return false;}
+			item = std::move(dq.front());
+			dq.pop_front();
+			return true;
+		}
 	};
 }
