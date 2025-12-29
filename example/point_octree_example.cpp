@@ -16,14 +16,10 @@ static_assert(DIMENSION==2 or DIMENSION==3, "test is enabled for DIMENSION 2 or 
 // if these buffers are large, they should be allocated on the heap
 // if these buffers are too small, they might fill up
 // this defaults to true in thread_queue.hpp but is copied here for visibility.
-#ifndef GUTIL_OCTREE_BUFFER_USE_STACK
-	#define GUTIL_OCTREE_BUFFER_USE_STACK true
-#endif
-
 
 
 // using Scalar_t = gutil::FixedPoint<int32_t>;
-using Scalar_t = double;
+using Scalar_t = float;
 using Octree_t = gutil::PointOctree<DIMENSION,Scalar_t,128>;
 using Index_t  = gutil::Point<DIMENSION,size_t>;
 using Point_t  = gutil::Point<DIMENSION,Scalar_t>;
@@ -50,7 +46,11 @@ void generate_points2(Octree_t& octree, const Index_t& N) {
 			//push_back_async defaults to push_back. This can still be called in parallel, but
 			//it locks the entire tree with a lock_guard mutex. Data can be searched in parallel
 			//if no data is currently being inserted.
-			[[maybe_unused]] size_t stored_idx = octree.push_back_async(Point_t{i,j});
+			#ifdef _OPENMP
+				octree.push_back_async(Point_t{i,j});
+			#else
+				octree.push_back(Point_t{i,j});
+			#endif
 		}
 	}
 
@@ -78,7 +78,11 @@ void generate_points3(Octree_t& octree, const Index_t& N) {
 	for (size_t i=0; i<N[0]; i++) {
 		for (size_t j=0; j<N[1]; j++) {
 			for (size_t k=0; k<N[2]; k++) {
-				octree.push_back_async(Point_t{i,j,k});
+				#ifdef _OPENMP
+					octree.push_back_async(Point_t{i,j,k});
+				#else
+					octree.push_back(Point_t{i,j,k});
+				#endif
 			}
 		}
 	}
@@ -105,6 +109,7 @@ int main(int argc, char* argv[]) {
 	//to help avoid floating point errors, the bounding box will be expanded to have
 	//power of 2 coordinates.
 	Octree_t octree(Box_t{Point_t{0}, Point_t{N}});
+	// Octree_t octree;
 
 	if constexpr (DIMENSION==2) {
 		generate_points2(octree, N);
@@ -116,26 +121,27 @@ int main(int argc, char* argv[]) {
 	if (octree.size() == prod(N)) {std::cout << "SUCCESS\n";}
 	else {std::cout << "FAIL\n";}
 
-	size_t n_nodes, n_idx, n_idx_cap, n_leafs;
-	int max_depth;
-	octree.treeSummary(n_nodes, n_idx, n_idx_cap, n_leafs, max_depth);
+	// size_t n_nodes, n_idx, n_idx_cap, n_leafs;
+	// int max_depth;
+	// octree.treeSummary(n_nodes, n_idx, n_idx_cap, n_leafs, max_depth);
 
-	std::cout << "The octree has " << n_nodes << " octree nodes with " << n_leafs << " leafs\n";
-	std::cout << "The octree is storing " << n_idx << "/" << n_idx_cap << " data indices\n";
-	std::cout << "The octree has a maximum depth of " << max_depth << std::endl;
+	// std::cout << "The octree has " << n_nodes << " octree nodes with " << n_leafs << " leafs\n";
+	// std::cout << "The octree is storing " << n_idx << "/" << n_idx_cap << " data indices\n";
+	// std::cout << "The octree has a maximum depth of " << max_depth << std::endl;
 
-	double memory_overhead_in_bytes = sizeof(octree) + n_nodes*sizeof(typename Octree_t::Node_t);
-	double storage_memory_in_bytes  = octree.size() * sizeof(typename Octree_t::Data_t);
-	double byte2MiB = std::pow(0.5, 20);
+	// double memory_overhead_in_bytes = sizeof(octree) + n_nodes*sizeof(typename Octree_t::Node_t);
+	// double storage_memory_in_bytes  = octree.size() * sizeof(typename Octree_t::Data_t);
+	// double byte2MiB = std::pow(0.5, 20);
 
-	std::cout << "The octree structure itself is using " << memory_overhead_in_bytes*byte2MiB << " MiB "
-			  << "memory overhead\n";
-	std::cout << "The data itself is using " << storage_memory_in_bytes*byte2MiB << " MiB\n";
+	// std::cout << "The octree structure itself is using " << memory_overhead_in_bytes*byte2MiB << " MiB "
+	// 		  << "memory overhead\n";
+	// std::cout << "The data itself is using " << storage_memory_in_bytes*byte2MiB << " MiB\n";
 
 	Box_t search_box(Point_t{0}, 0.5*Point_t{N});
-	std::vector<size_t> found_idx;
-	octree.get_data_in_box(search_box, found_idx);
+	std::vector<size_t> found_idx = octree.get_data_in_box(search_box);
 	std::cout << "The octree found " << found_idx.size() << " points in the box: " << search_box << std::endl;
+
+	return 0;
 }
 
 

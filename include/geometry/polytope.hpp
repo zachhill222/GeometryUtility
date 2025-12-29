@@ -14,8 +14,7 @@ namespace gutil {
 	/// @tparam DIM the spacial dimension the polytope is embedded in
 	/// @tparam T   the scalar type that models the real line
 	////////////////////////////////
-	template<int N, int DIM, typename T=double>
-		requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T=double>	requires (N>2 and DIM>1)
 	class Polytope {
 	public:
 		//type aliases and helpful constants
@@ -53,19 +52,19 @@ namespace gutil {
 
 
 	//POLYTOPE IMPLEMENTATION
-	template<int N, int DIM, typename T>
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	inline constexpr const Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) const noexcept {
 		assert(0<=idx and idx<DIM);
 		return _vertices[idx];
 	}
 	
-	template<int N, int DIM, typename T>
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	inline constexpr Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) noexcept {
 		assert(0<=idx and idx<DIM);
 		return _vertices[idx];
 	}
 	
-	template<int N, int DIM, typename T>
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	constexpr Point<DIM,T> Polytope<N,DIM,T>::support(const Point<DIM,T>& direction) const noexcept {
 		T maxdot = dot(direction, _vertices[0]);
 		int maxind = 0;
@@ -81,7 +80,7 @@ namespace gutil {
 		return _vertices[maxind];
 	}
 	
-	template<int N, int DIM, typename T>
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	constexpr Box<DIM,T> Polytope<N,DIM,T>::bbox() const noexcept {
 		Point<DIM,T> low  = _vertices[0];
 		Point<DIM,T> high = _vertices[0]; 
@@ -95,7 +94,7 @@ namespace gutil {
 	}
 
 
-	template<int N, int DIM, typename T>
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	std::ostream& operator<<(std::ostream& stream, const Polytope<N,DIM,T>& polytope) {
 		for (int i=0; i<polytope.n_vertices(); i++){
 			stream << i << ": ";

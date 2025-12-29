@@ -1,9 +1,13 @@
 #pragma once
 
 #include <cassert>
+#include <iostream>
+
 #include <mutex>
 #include <shared_mutex>
 #include <atomic>
+#include <thread>
+
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
@@ -36,8 +40,9 @@ namespace gutil {
 		int cursor = 0;
 
 		// Synchronization
-		mutable std::shared_mutex _rw_mtx{};
 		std::atomic<bool> is_leaf{true};
+		mutable std::shared_mutex mutex;
+
 
 		// Create child node
 		OctreeParallelNode(Node_t* parent, int sibling_number) 
@@ -52,7 +57,7 @@ namespace gutil {
 
 		// Destructor
 		~OctreeParallelNode() {
-			for (int c = 0; c < N_CHILDREN; c++) {
+			for (int c=0; c<N_CHILDREN; c++) {
 				delete children[c];
 			}
 			delete[] data_idx;
@@ -71,6 +76,9 @@ namespace gutil {
 	
 	template<int DIM, int N_DATA, typename T>
 	void resetDataIdx(OctreeParallelNode<DIM,N_DATA,T>* node) {
+		assert(node);
+		assert(node->cursor <= N_DATA);
+
 		delete[] node->data_idx;
 		node->data_idx = new size_t[N_DATA];
 		node->cursor = 0;
@@ -78,6 +86,9 @@ namespace gutil {
 
 	template<int DIM, int N_DATA, typename T>
 	void clearDataIdx(OctreeParallelNode<DIM,N_DATA,T>* node) {
+		assert(node);
+		assert(node->cursor <= N_DATA);
+
 		delete[] node->data_idx;
 		node->data_idx = nullptr;
 		node->cursor = 0;
@@ -86,7 +97,11 @@ namespace gutil {
 	/// Append data index to node
 	/// Returns: 1 if added, 0 if already present, -1 if no room
 	template<int DIM, int N_DATA, typename T>
-	int appendDataIdx(OctreeParallelNode<DIM,N_DATA,T>* node, size_t idx) {
+	int appendDataIdx(OctreeParallelNode<DIM,N_DATA,T>* node, const size_t idx) {
+		assert(node);
+		assert(isLeaf(node));
+		assert(node->cursor <= N_DATA);
+
 		if (node->data_idx == nullptr) {
 			resetDataIdx(node);
 		}
@@ -111,10 +126,10 @@ namespace gutil {
 
 	/// Remove data index from node
 	template<int DIM, int N_DATA, typename T>
-	void removeDataIdx(OctreeParallelNode<DIM,N_DATA,T>* node, size_t idx) {
+	void removeDataIdx(OctreeParallelNode<DIM,N_DATA,T>* node, const size_t idx) {
 		if (node == nullptr) {return;}
 		if (node->data_idx == nullptr) {return;}
-
+		
 		for (int i = 0; i < node->cursor; i++) {
 			if (node->data_idx[i] == idx) {
 				// Swap with last element and decrement cursor
@@ -123,12 +138,6 @@ namespace gutil {
 				return;
 			}
 		}
-	}
-
-	/// Check if node is a leaf (thread-safe)
-	template<int DIM, int N_DATA, typename T>
-	bool isLeaf(const OctreeParallelNode<DIM,N_DATA,T>* node) {
-		return node->is_leaf.load(std::memory_order_acquire);
 	}
 
 	/// Check if a node contains a specific index
@@ -141,4 +150,31 @@ namespace gutil {
 		}
 		return false;
 	}
+
+	/// Check if node is a leaf
+	template<int DIM, int N_DATA, typename T>
+	inline bool isLeaf(const OctreeParallelNode<DIM,N_DATA,T>* node) {
+		assert(node);
+		return node->is_leaf.load(std::memory_order_acquire);
+	}
+
+	/// Print for debug
+	template<int DIM, int N_DATA, typename T>
+	std::ostream& operator<<(std::ostream& os, const OctreeParallelNode<DIM,N_DATA,T>* node) {
+		if (node==nullptr) {os << "NULL\n"; return os;}
+
+		// os << node->parent << "\n";
+
+		os << "thread id: " << std::this_thread::get_id() << "\n"
+		   << "bbox: " << node->bbox << "\n"
+		   << "sibling_number: " << node->sibling_number << "\n"
+		   << "depth: " << node->depth << "\n"
+		   << "cursor: " << node->cursor << "/" << N_DATA << "\n"
+		   << "is_leaf: " << node->is_leaf.load(std::memory_order_acquire) << "\n";
+
+		assert(node->cursor <= N_DATA);
+		return os;
+	}
+
+
 }

@@ -21,9 +21,7 @@ namespace gutil {
 									true,
 									dim,
 									n_data,
-									T,
-									GUTIL_POINT_OCTREE_BUFFER_CAPACITY,
-									GUTIL_POINT_OCTREE_BUFFER_USE_STACK>
+									T>
 	{
 	public:
 		using BaseClass = BasicParallelOctree<
@@ -31,9 +29,7 @@ namespace gutil {
 									true,
 									dim,
 									n_data,
-									T,
-									GUTIL_POINT_OCTREE_BUFFER_CAPACITY,
-									GUTIL_POINT_OCTREE_BUFFER_USE_STACK>;
+									T>;
 		using typename BaseClass::Data_t;
 		using typename BaseClass::Box_t;
 
