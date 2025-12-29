@@ -15,6 +15,12 @@
 #include "octree/octree_util.hpp"
 #include "octree/thread_queue.hpp"
 
+#ifndef GUTIL_MAX_OCTREE_DEPTH
+	#define GUTIL_MAX_OCTREE_DEPTH 16
+#endif
+
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// BasicParallelOctree - Thread-safe spatial data structure
 ///
@@ -127,7 +133,6 @@ namespace gutil {
 		}
 
 		size_t size() const noexcept {
-			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
 			return _next_data_idx.load(std::memory_order_acquire);
 		}
 
@@ -155,6 +160,13 @@ namespace gutil {
 			resetDataIdx(new_root);
 			delete _root;
 			_root = new_root;
+		}
+
+		Stats get_tree_stats() const {
+			Stats result{};
+			_recursive_node_properties(_root, result);
+			result.max_depth -= _root->depth;
+			return result;
 		}
 
 		////////////////////////////////////////////////////////////
@@ -190,9 +202,10 @@ namespace gutil {
 
 		/// Find existing data in tree
 		/// Returns index if found, (size_t)-1 if not found
+		/// Only call while the the tree is stable (i.e., push_back_async() or flush() are not running)
 		size_t find(const Data_t& val) const {
 			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
-			const size_t result = _recursive_find_index(_root, val);
+			const size_t result = _recursive_find_index<false>(_root, val); //only called while the tree is stable
 			return result;
 		}
 
@@ -202,9 +215,11 @@ namespace gutil {
 		auto begin()        { return _data.begin(); }
 		auto begin()  const { return _data.cbegin();}
 		auto cbegin() const { return _data.cbegin();}
-		auto end()          { return _data.end();   }
-		auto end()    const { return _data.cend();  }
-		auto cend()   const { return _data.cend();  }
+		auto end()          { return _data.begin() += size();}
+		auto end()    const { return _data.begin() += size();}
+		auto cend()   const { return _data.begin() += size();}
+
+		const DATA_T& back() const {return _data[size()-1];}
 
 		////////////////////////////////////////////////////////////
 		// Interact with the bounding box
@@ -226,14 +241,8 @@ namespace gutil {
 			// Reinsert data into new nodes if needed
 			if constexpr (!SINGLE_DATA) {
 				for (size_t j = 0; j < _data.size(); j++) {
-					Node_t* start_node = nullptr;
-					{
-						Node_t* start_node = _recursive_find_best_node(start_node, _data[j]);
-					}
-
-					{
-						_recursive_insert_data<true>(start_node, _data[j], j);
-					}
+					Node_t* start_node = _recursive_find_best_node(start_node, _data[j]);
+					_recursive_insert_data<true>(start_node, _data[j], j);
 				}
 			}
 		}
@@ -288,6 +297,7 @@ namespace gutil {
 		void _divide(Node_t* node);
 
 		/// Find index of data in tree
+		template<bool LOCKED>
 		size_t _recursive_find_index(const Node_t* node, const Data_t &val) const;
 
 		/// Find all data indices in nodes that intersect the specified box
@@ -296,9 +306,6 @@ namespace gutil {
 
 		/// Expand root bounding box to contain new region
 		void _recursive_expand_bbox(const Box_t& new_bbox);
-
-		/// Check if there is duplicated data
-		void _recursive_duplicate_data(const Node_t* node) const;
 
 		/// Switch a thread from inserting to flushing if possible
 		/// Return false if the thread didn't switch.
@@ -373,7 +380,7 @@ namespace gutil {
 
 		//try to find the existing data
 		size_t idx = (size_t) -1;
-		idx = _recursive_find_index(start_node, val);
+		idx = _recursive_find_index<false>(start_node, val); //single threaded, no need to lock
 		if (idx!=(size_t) -1) {return idx;}
 
 		//data must be inserted
@@ -407,7 +414,7 @@ namespace gutil {
 
 		//try to find the existing data
 		size_t idx = (size_t) -1;
-		idx = _recursive_find_index(start_node, val);
+		idx = _recursive_find_index<true>(start_node, val); //must aquire read lock
 		if (idx!=(size_t) -1) {return idx;}
 
 		//data must be inserted
@@ -492,6 +499,7 @@ namespace gutil {
 
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
+	template<bool LOCKED>
 	size_t BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::
 		_recursive_find_index(
 			const OctreeParallelNode<DIM,N_DATA,T>* node,
@@ -502,19 +510,19 @@ namespace gutil {
 
 		
 		//make a shared lock all the way down
-		std::shared_lock<std::shared_mutex> lock(node->mutex);
+		std::shared_lock<std::shared_mutex> lock(node->mutex, std::defer_lock);
+		if constexpr (LOCKED) {lock.lock();}
 
 		if (!isLeaf(node))
 		{
 			assert(node->data_idx==nullptr);
 			assert(node->cursor==0);
-
 			for (int c=0; c<N_CHILDREN; c++)
 			{
 				assert(node->children[c]);
 				if (isValid(node->children[c]->bbox, val))
 				{
-					const size_t result = _recursive_find_index(node->children[c], val);
+					const size_t result = _recursive_find_index<LOCKED>(node->children[c], val);
 					if (result<size()) {return result;}
 				}
 			}
@@ -614,6 +622,10 @@ namespace gutil {
 		if (node==nullptr) {return;}
 		if (!isLeaf(node)) {return;}
 
+		if (node->depth - _root->depth >= GUTIL_MAX_OCTREE_DEPTH) {
+			throw std::runtime_error("BasicParallelOctree::_divide() - maximum depth (" + std::to_string(GUTIL_MAX_OCTREE_DEPTH) + ") exceeded");
+		}
+
 		// std::cout << "_divide:\n" << node << std::endl;
 
 		//we are the dividing thread
@@ -654,7 +666,6 @@ namespace gutil {
 	//////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////    OTHER RECURSIVE METHOD IMPLEMNTATION    /////////////////////////
 	//////////////////////////////////////////////////////////////////////////////////////////////
-
 	/// Expand root bounding box to contain new region
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA,typename T>
 	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_expand_bbox(const Box<DIM,T>& new_bbox) {
@@ -739,6 +750,33 @@ namespace gutil {
 		//but all will be valid data
 	}
 
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_node_properties(
+		const OctreeParallelNode<DIM,N_DATA,T>* node,
+		BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::Stats& result) const {
+			if (node == nullptr) {return;}
+			std::shared_lock<std::shared_mutex> lock(node->mutex);
+
+			result.n_nodes++;
+			if (isLeaf(node)) {result.n_leafs++;}
+			result.memory_used_bytes += sizeof(decltype(*node));
+			result.memory_reserved_bytes += sizeof(decltype(*node));
+
+			if (node->data_idx != nullptr) {
+				result.n_used_indices += node->cursor;
+				result.n_indices_capacity += N_DATA;
+
+				result.memory_used_bytes += node->cursor * sizeof(size_t);
+				result.memory_reserved_bytes += N_DATA * sizeof(size_t);
+			}
+
+			result.max_depth = std::max(result.max_depth, node->depth);
+
+			for (int c = 0; c < OctreeParallelNode<DIM,N_DATA,T>::N_CHILDREN; c++) {
+				_recursive_node_properties(node->children[c], result);
+			}
+		}
 
 	///////////////////////////////////////////////////////////////////////////
 	//////////////////////// OTHER PRIVATE METHODS ////////////////////////////

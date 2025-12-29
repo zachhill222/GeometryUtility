@@ -225,6 +225,12 @@ namespace gutil {
 		return left;
 	}
 
+	template <int dim, std::integral T>
+	constexpr Point<dim,T> operator%(const Point<dim,T>& left, const Point<dim,T>& right) {
+		Point<dim,T> result{};
+		for (int i=0; i<dim; i++) {result[i] = left[i]%right[i];}
+	}
+
 	//////////////////////////////////////////////////////////
 	// Comparison
 	//

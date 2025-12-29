@@ -15,7 +15,7 @@ DEBUG      = -DNDEBUG
 CC = $(CXX) $(OPT) $(PAR) $(DEBUG)
 
 #testing defines
-DIM        = -DDIMENSION=3
+DIM        = -DDIMENSION=2
 
 #final defines
 DEFINES = ${DIM}
@@ -23,5 +23,9 @@ DEFINES = ${DIM}
 point:
 	${CC} ${INCLUDE} ${DEFINES} point_octree_example.cpp -o point_octree_example
 
+polygon:
+	${CC} ${INCLUDE} ${DEFINES} polygon_octree_example.cpp -o polygon_octree_example
+
+
 clean:
-	rm point_octree_example *.out
+	rm -f point_octree_example polygon_octree_example *.out

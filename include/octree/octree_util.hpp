@@ -43,17 +43,19 @@ namespace gutil {
 		std::atomic<bool> is_leaf{true};
 		mutable std::shared_mutex mutex;
 
-
 		// Create child node
-		OctreeParallelNode(Node_t* parent, int sibling_number) 
-			: parent(parent), 
-			  sibling_number(sibling_number), 
-			  depth(parent->depth + 1), 
-			  bbox(parent->bbox.center(), parent->bbox.voxelvertex(sibling_number)) {}
+		OctreeParallelNode(Node_t* parent, int sibling_number):
+			parent(parent),
+			sibling_number(sibling_number), 
+			depth(parent->depth + 1), 
+			bbox(parent->bbox.center(), parent->bbox.voxelvertex(sibling_number))
+			{}
 
 		// Create root node with specified bounding box
-		explicit OctreeParallelNode(const Box_t& bbox, int depth=0) 
-			: depth(depth), bbox(bbox) {}
+		explicit OctreeParallelNode(const Box_t& bbox, int depth=0) :
+			depth(depth),
+			bbox(bbox)
+			{}
 
 		// Destructor
 		~OctreeParallelNode() {

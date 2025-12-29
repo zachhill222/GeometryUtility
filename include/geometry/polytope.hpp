@@ -24,7 +24,9 @@ namespace gutil {
 
 		//constructors
 		constexpr Polytope() noexcept {}
-		Polytope(std::initializer_list<Point_t> list) noexcept requires(list.size()==size_t(N)) {
+		Polytope(std::initializer_list<Point_t> list) noexcept {
+			if (list.size()<N) {std::terminate();}
+
 			for (int i=0; i<N; i++) {_vertices[i] = std::move(list[i]);}
 		}
 
@@ -54,13 +56,13 @@ namespace gutil {
 	//POLYTOPE IMPLEMENTATION
 	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	inline constexpr const Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) const noexcept {
-		assert(0<=idx and idx<DIM);
+		assert(0<=idx and idx<N);
 		return _vertices[idx];
 	}
 	
 	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	inline constexpr Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) noexcept {
-		assert(0<=idx and idx<DIM);
+		assert(0<=idx and idx<N);
 		return _vertices[idx];
 	}
 	
@@ -93,12 +95,20 @@ namespace gutil {
 		return Box<DIM,T>{low,high};
 	}
 
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	constexpr bool operator==(const Polytope<N,DIM,T>& left, const Polytope<N,DIM,T>& right) {
+		for (int i=0; i<N; i++) {
+			if (left[i] != right[i]) {return false;}
+		}
+		return true;
+	}
 
 	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	std::ostream& operator<<(std::ostream& stream, const Polytope<N,DIM,T>& polytope) {
-		for (int i=0; i<polytope.n_vertices(); i++){
-			stream << i << ": ";
-			stream << polytope[i] << std::endl;
+		int i=0;
+		for (const auto& v : polytope){
+			stream << i << ": " << v << "\n";
+			i++;
 		}
 		return stream;
 	}

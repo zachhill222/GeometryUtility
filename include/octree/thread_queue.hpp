@@ -105,18 +105,9 @@ namespace gutil {
 	/////////////////////////////////////////////////
 	/// A queue data structure for use in multithreaded applications.
 	/// This allows multiple threads for both putting data in and pulling
-	/// data out.
-	/// Sometimes the queue will get full, so data should be inserted with
-	/// while(!try_push(data)). The number of unssuccessful pushes are tracked in buffer_bumps.
+	/// data out. This is a simple wrapper around std::deque.
 	///
-	/// @tparam DATA_T   The type of data to be stored 
-	/// @tparam CAPACITY The maximum number of elements that can be stored in the
-	///                  queue/buffer at a time. Should be a power of 2 for faster
-	///                  mod computation. If this is changed to be re-sizable,
-	///                  the mod computation may need to be implemented by hand
-	///                  because the compiler won't know it is a power of 2.
-	///
-	/// @tparam USE_STACK  The buffer can be allocated on either the heap or the stack.
+	/// @tparam DATA_T   The type of data to be stored
 	/////////////////////////////////////////////////
 	template<typename DATA_T>
 	class MultipleInMultipleOut {
@@ -140,8 +131,6 @@ namespace gutil {
 			std::lock_guard<std::shared_mutex> lock(mutex);
 			dq.clear();
 		}
-
-		
 
 		size_t size() const
 		{
