@@ -6,9 +6,9 @@
 	#include <omp.h>
 #endif
 
-using Scalar_t = gutil::FixedPoint<int32_t>;
+using Scalar_t = gutil::FixedPoint<int64_t>;
 // using Scalar_t = float;
-constexpr int n_sides = 4;
+constexpr int n_sides = 6;
 using Octree_t = gutil::RegularPolygonOctree<n_sides,Scalar_t,64>;
 using Index_t  = gutil::Point<DIMENSION,size_t>;
 using Point_t  = gutil::Point<DIMENSION,Scalar_t>;
