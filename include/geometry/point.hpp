@@ -1,404 +1,397 @@
 #pragma once
 
-#include <iostream>
-#include <initializer_list>
+#include <algorithm>
 #include <cmath>
-#include <limits>
-#include <cassert>
+#include <initializer_list>
 #include <concepts>
 #include <vector>
-#include <algorithm>
-#include <type_traits>
+#include <iostream>
+#include <cassert>
 
-namespace gutil {
-	////////////////////////////////////////////////////////////////
-	/// Class for points in space.
-	/// Points are partially ordered by using the positive quadrant/octant cone.
-	/// If floating point comparisons need to be made carefully,
-	/// this should be implemented in the type T.
+namespace gutil
+{
+	///////////////////////////////////////////////////////////
+	/// Utility math operations
+	///////////////////////////////////////////////////////////
+	template<typename T>
+	inline constexpr T abs(const T& val) noexcept {return val > T{0} ? val : -val;}
+
+	template<typename T>
+	inline constexpr T min(const T& a, const T& b) noexcept {return a<b ? a : b;}
+
+	template<typename T>
+	inline constexpr T max(const T& a, const T& b) noexcept {return a>b ? a : b;}
+
+
+	//////////////////////////////////////////////////////////
+	/// A class for cartesian points in space
 	///
-	/// @tparam dim The number of components/the spacial dimension
-	/// @tparam T   The scalar type (e.g., float, double, gutil::FixedPoint)
-	////////////////////////////////////////////////////////////////
-	template <int dim=3, typename T=double>
-	struct Point {
-		T _data[dim];
-		using Scalar_t = T;
-		static constexpr int dimension = dim;
+	/// Can be treated as a vector with no column or row orientation.
+	///
+	/// @tparam DIM   The spacial dimension. These points are allocated
+	///                   on the stack, so DIM shouldn't be too large.
+	/// @tparam T     The underlying numeric type
+	///
+	/// Note that the type T must implement any comparisons if
+	/// floating point rounding is important and unacceptable.
+	//////////////////////////////////////////////////////////
+	template<int DIM, typename T=double> requires (DIM>0)
+	class Point
+	{
+	public:
+		//track type information
+		static constexpr int dim = DIM;
+		using scalar_type = T;
 
-		//////////////////////////////////////////////////////////
-		// Constructors
-		//////////////////////////////////////////////////////////
-		constexpr Point() noexcept {
-			for (int i = 0; i < dim; i++) {
-				_data[i] = T{0}; }
-		}
+		//essential constructors
+		constexpr Point() noexcept : _data{} {}
+		constexpr Point(const Point& other) noexcept : _data{} {std::copy(other._data, other._data+DIM, this->_data);}
+		constexpr Point(Point&& other) noexcept : _data{} {std::move(other._data, other._data+DIM, this->_data);}
 
-		constexpr explicit Point(const T val) noexcept {
-			for (int i=0; i<dim; i++) {_data[i] = val;}
-		}
-
-		// Initialize via braces {1,2,3}
-		template <typename U>
-		constexpr Point(std::initializer_list<U> init) noexcept requires(std::is_convertible<U,T>::value) : _data{} {
+		//initialize via Point v{1,2,3}
+		template<typename U> requires (std::is_nothrow_convertible<U,T>::value)
+		constexpr Point(std::initializer_list<U> init_list) noexcept : _data{}
+		{
 			int i=0;
-			for (auto it=init.begin(); it!=init.end() && i<dim; ++it, ++i) {
+			for (auto it=init_list.begin(); it!=init_list.end() and i<DIM; ++it, ++i) {
 				_data[i] = static_cast<T>(*it);
 			}
 		}
 
-		// Copy constructor (same type)
-		constexpr Point(const Point<dim,T> &other) noexcept {
-			std::copy(other._data, other._data+dim, _data);
-		}
+		//initialize via Point v(1,2,3)
+		template<typename... Ts> requires (sizeof...(Ts)==DIM)
+		constexpr Point(Ts... args) : _data{args...} {}
 
-		// Copy constructor with type conversion
-		template <typename U>
-		constexpr explicit Point(const Point<dim,T> &other) noexcept requires(std::is_convertible<U,T>::value) {
-			for (int i=0; i<dim; i++) {_data[i] = static_cast<T>(other[i]);}
-		}
+		//initialize via fill
+		constexpr Point(const T& val) : _data{} {std::fill(_data, _data+DIM, val);}
 
-		// Copy constructor with dimension change (trim/zero pad)
-		template<int otherdim, typename U>
-		constexpr explicit Point(const Point<otherdim,U> &other) noexcept requires(std::is_convertible<U,T>::value) {
-			constexpr int min_dim = std::min(dim, otherdim);
-			for (int i=0; i<min_dim; i++) {_data[i] = static_cast<T>(other[i]);}
-			for (int i=min_dim; i<dim; i++) {_data[i] = T{};}
-		}
+		//destructor
+		~Point() {}
 
-		// Move constructor
-		constexpr Point(Point<dim,T>&& other) noexcept {
-			std::move(other._data, other._data+dim, _data);
-		}
-
-		~Point() = default;
-
-		//////////////////////////////////////////////////////////
-		// Assignment operators
-		//////////////////////////////////////////////////////////
-		constexpr Point& operator=(const Point<dim,T>& other) noexcept {
-			if (this != &other) {
-				std::copy(other._data, other._data+dim, _data);
-			}
+		//copy and move assignment
+		constexpr Point& operator=(const Point& other) noexcept
+		{
+			if (this != &other) {std::copy(other._data, other._data+DIM, this->_data);}
 			return *this;
 		}
 
-		// Move assignment
-		constexpr Point& operator=(Point<dim,T>&& other) noexcept {
-			if (this != &other) {
-				std::move(other._data, other._data+dim, _data);
-			}
+		constexpr Point& operator=(Point&& other) noexcept
+		{
+			if (this != &other) {std::move(other._data, other._data+DIM, this->_data);}
 			return *this;
 		}
 
-		//////////////////////////////////////////////////////////
-		// Element access
-		//////////////////////////////////////////////////////////
-		constexpr T& operator[](int idx) noexcept{
-			assert(0 <= idx && idx < dim); 
-			return _data[idx];
-		}
-		
-		constexpr const T& operator[](int idx) const noexcept {
-			assert(0 <= idx && idx < dim); 
-			return _data[idx];
-		}
-		
-		constexpr const T& at(int idx) const {
-			if (idx < 0 || idx >= dim) {
-				throw std::runtime_error("INDEX_OUT_OF_RANGE");
-			}
-			return _data[idx];
-		}
+		//element access
+		inline constexpr const T& operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
+		inline constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
 
-		constexpr T& at(int idx) {
-			if (idx < 0 || idx >= dim) {
-				throw std::runtime_error("INDEX_OUT_OF_RANGE");
-			}
-			return _data[idx];
-		}
-
-		//////////////////////////////////////////////
-		/// Convert between point types
-		/// if converting to a larger dimension, append zeros
-		/// if converting to a smaller dimension, trim end
-		//////////////////////////////////////////////
-		template<int otherdim, typename U>
-		explicit constexpr operator Point<otherdim,U>() const noexcept {
-			Point<otherdim,U> result{};
-			constexpr int mindim = dim < otherdim ? dim : otherdim;
-			for (int i=0; i<mindim; i++) {
-				result[i] = static_cast<U>(_data[i]);
-			}
+		//type conversion
+		template<int OTHER_DIM, typename OTHER_T> requires std::is_nothrow_convertible<T,OTHER_T>::value
+		explicit constexpr operator Point<OTHER_DIM, OTHER_T>() const noexcept
+		{
+			Point<OTHER_DIM,OTHER_T> result{};
+			constexpr int min_dim = DIM < OTHER_DIM ? DIM : OTHER_DIM;
+			//copy with cast valid data
+			for (int i=0; i<min_dim; i++) {result[i] = static_cast<OTHER_T>(_data[i]);}
+			//append 0 if necessary
+			for (int i=min_dim; i<OTHER_DIM; i++) {result[i] = OTHER_T{0};}
 			return result;
 		}
+
+		//asymetric/in-place math operations
+		constexpr Point& operator+=(const Point& other) noexcept
+		{
+			for (int i=0; i<DIM; i++) {_data[i] += other._data[i];}
+			return *this;
+		}
+
+		constexpr Point& operator-=(const Point& other) noexcept
+		{
+			for (int i=0; i<DIM; i++) {_data[i] -= other._data[i];}
+			return *this;
+		}
+
+		constexpr Point& operator*=(const Point& other) noexcept
+		{
+			for (int i=0; i<DIM; i++) {_data[i] *= other._data[i];}
+			return *this;
+		}
+
+		template<typename U> requires std::is_nothrow_convertible<U,T>::value
+		constexpr Point& operator*=(const U& other) noexcept
+		{
+			for (int i=0; i<DIM; i++) {_data[i] *= static_cast<T>(other);}
+			return *this;
+		}
+
+		constexpr Point& operator/=(const Point& other) noexcept
+		{
+			for (int i=0; i<DIM; i++) {_data[i] /= other._data[i];}
+			return *this;
+		}
+
+		template<typename U> requires std::is_nothrow_convertible<U,T>::value
+		constexpr Point& operator/=(const U& other) noexcept
+		{
+			return *this *= static_cast<T>(U{1}/other);
+		}
+
+		constexpr Point& operator%=(const Point& other) noexcept requires(std::integral<T>)
+		{
+			for (int i=0; i<DIM; i++) {_data[i] %= other._data[i];}
+		}
+
+		constexpr Point operator-() const noexcept
+		{
+			Point result{*this};
+			for (int i=0; i<DIM; i++) {result._data[i] = -result._data[i];}
+			return result;
+		}
+
+		//norms
+		constexpr T norminfty() const noexcept
+		{
+			T result{abs(_data[0])};
+			for (int i=1; i<DIM; i++) {result = max(result, abs(_data[i]));}
+			return result;
+		}
+
+		constexpr T norm1() const noexcept
+		{
+			T result{abs(_data[0])};
+			for (int i=1; i<DIM; i++) {result += abs(_data[i]);}
+			return result;
+		}
+
+		constexpr T squaredNorm() const noexcept
+		{
+			T result{_data[0]*_data[0]};
+			for (int i=1; i<DIM; i++) {result += _data[i]*_data[i];}
+			return result;
+		}
+
+		//accumulators
+		constexpr T prod() const noexcept
+		{
+			T result{_data[0]};
+			for (int i=1; i<DIM; i++) {result *= _data[i];}
+			return result;
+		}
+
+		constexpr T sum() const noexcept
+		{
+			T result{_data[0]};
+			for (int i=1; i<DIM; i++) {result += _data[i];}
+			return result;
+		}
+
+		constexpr T max() const noexcept
+		{
+			T result{_data[0]};
+			for (int i=1; i<DIM; i++) {result = max(result, _data[i]);}
+		}
+
+		constexpr T min() const noexcept
+		{
+			T result{_data[0]};
+			for (int i=1; i<DIM; i++) {result = min(result, _data[i]);}
+		}
+
+		//standard vector operations
+		constexpr T dot(const Point& other) const noexcept
+		{
+			T result{_data[0]*other._data[0]};
+			for (int i=1; i<DIM; i++) {result += _data[i]*other._data[i];}
+			return result;
+		}
+
+		constexpr Point<3,T> cross(const Point& other) const noexcept requires (DIM==3)
+		{
+			//*this x other
+			Point<3,T> result{};
+			result[0] = _data[1]*other._data[2] - _data[2]*other._data[1];
+			result[1] = _data[2]*other._data[0] - _data[0]*other._data[2];
+			result[2] = _data[0]*other._data[1] - _data[1]*other._data[0];
+			return result;
+		}
+
+	protected:
+		T _data[DIM];
 	};
 
-	//////////////////////////////////////////////////////////
-	// Arithmetic
-	//////////////////////////////////////////////////////////
-	template <int dim, typename T>
-	constexpr Point<dim, T> operator+(const Point<dim,T> &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = left[i] + right[i];}
-		return result;
-	}
 
-	template <int dim, typename T>
-	constexpr Point<dim,T>& operator+=(Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {left[i] += right[i];}
-		return left;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim, T> operator-(const Point<dim,T> &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = left[i] - right[i];}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim,T>& operator-=(Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {left[i] -= right[i];}
-		return left;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim,T> operator-(const Point<dim,T> &right) {
-		Point<dim,T> result;
-		for (int i=0; i<dim; i++) {result[i] = -right[i];}
-		return result;
-	}
-
-	template <int dim, typename T, typename U>
-	constexpr Point<dim, T> operator*(const U &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = static_cast<T>(left) * right[i];}
-		return result;
-	}
-
-	template <int dim, typename T, typename U>
-	constexpr Point<dim, T> operator*(const Point<dim,T> &left, const U &right) {
-		return right * left;
-	}
-
-	template <int dim, typename T, typename U>
-	constexpr Point<dim,T>& operator*=(Point<dim,T> &left, const U &right) {
-		for (int i=0; i<dim; i++) {left[i] *= static_cast<T>(right);}
-		return left;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim, T> operator*(const Point<dim,T> &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = left[i] * right[i];}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim,T>& operator*=(Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {left[i] *= right[i];}
-		return left;
-	}
-
-	template <int dim, typename T, typename U>
-	constexpr Point<dim, T> operator/(const Point<dim,T> &left, const U &right) {
-		return left * (T{1} / static_cast<T>(right));
-	}
-
-	template <int dim, typename T, typename U>
-	constexpr Point<dim,T>& operator/=(Point<dim,T> &left, const U &right) {
-		left *= (T{1} / static_cast<T>(right));
-		return left;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim, T> operator/(const Point<dim,T> &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = left[i] / right[i];}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim,T>& operator/=(Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {left[i] /= right[i];}
-		return left;
-	}
-
-	template <int dim, std::integral T>
-	constexpr Point<dim,T> operator%(const Point<dim,T>& left, const Point<dim,T>& right) {
-		Point<dim,T> result{};
-		for (int i=0; i<dim; i++) {result[i] = left[i]%right[i];}
-	}
-
-	//////////////////////////////////////////////////////////
-	// Comparison
-	//
-	// Note that it is the responsibility of the type T to avoid
-	// floating point inconsistencies when they are important.
-	// The sorted_sum can help with this.
-	//////////////////////////////////////////////////////////
-	template <int dim, typename T>
-	constexpr bool operator==(const Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {
+	///////////////////////////////////////////////////////////////////
+	//////////////////////// COMPARISON (CONE) ////////////////////////
+	///////////////////////////////////////////////////////////////////
+	template<int DIM, typename T>
+	constexpr bool operator==(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		for (int i=0; i<DIM; i++) {
 			if (left[i]!=right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template <int dim, typename T>
-	constexpr bool operator!=(const Point<dim,T> &left, const Point<dim,T> &right) {
+	template<int DIM, typename T>
+	constexpr bool operator!=(const Point<DIM,T>& left, const Point<DIM,T>& right) {
 		return !(left == right);
 	}
 
-	template <int dim, typename T>
-	constexpr bool operator<(const Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {
+	template<int DIM, typename T>
+	constexpr bool operator<(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		for (int i=0; i<DIM; i++) {
 			if (left[i] >= right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template <int dim, typename T>
-	constexpr bool operator<=(const Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {
+	template<int DIM, typename T>
+	constexpr bool operator<=(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		for (int i=0; i<DIM; i++) {
 			if (left[i] > right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template <int dim, typename T>
-	constexpr bool operator>(const Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {
+	template<int DIM, typename T>
+	constexpr bool operator>(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		for (int i=0; i<DIM; i++) {
 			if (left[i] <= right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template <int dim, typename T>
-	constexpr bool operator>=(const Point<dim,T> &left, const Point<dim,T> &right) {
-		for (int i=0; i<dim; i++) {
+	template<int DIM, typename T>
+	constexpr bool operator>=(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		for (int i=0; i<DIM; i++) {
 			if (left[i] < right[i]) {return false;}
 		}
 		return true;
 	}
 
-	
-	//////////////////////////////////////////////////////////
-	/// Utility scalar operations
-	//////////////////////////////////////////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+	//////////////////////// ARITHMETIC (COMPONENT-WISE) ////////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> operator+(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{left};
+		return result+=right;
+	}
+
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> operator-(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{left};
+		return result-=right;
+	}
+
+	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
+	constexpr Point<DIM,T> operator*(const U& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{right};
+		return result*=static_cast<T>(left);
+	}
+
+	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
+	constexpr Point<DIM,T> operator*(const Point<DIM,T>& left, const U& right) {
+		Point<DIM,T> result{left};
+		return result*=static_cast<T>(right);
+	}
+
+	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
+	constexpr Point<DIM,T> operator/(const Point<DIM,T>& left, const U& right) {
+		Point<DIM,T> result{left};
+		return result/=static_cast<T>(right);
+	}
+
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> operator/(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{left};
+		return result/=right;
+	}
+
+	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
+	constexpr Point<DIM,T> operator/(const U& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result(static_cast<T>(left));
+		return result/=right;
+	}
+
+	template<int DIM, typename T> requires std::integral<T>
+	constexpr Point<DIM,T> operator%(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{left};
+		return result%=right;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	//////////////////////// TRADITIONAL VECTOR OPERATIONS ////////////////////////
+	///////////////////////////////////////////////////////////////////////////////
+	template<int DIM, typename T>
+	inline constexpr T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {return left.dot(right);}
+
 	template<typename T>
-	constexpr T abs(const T val) {return val<T{0} ? -val : val;}
+	inline constexpr Point<3,T> cross(const Point<3,T>& left, const Point<3,T>& right) noexcept {return left.cross(right);}
 
-	template<typename T>
-	constexpr T min(const T a, const T b) {return a<b ? a : b;}
+	template<int DIM, typename T>
+	inline constexpr T squaredNorm(const Point<DIM,T>& point) noexcept {return point.squaredNorm();}
 
-	template<typename T>
-	constexpr T max(const T a, const T b) {return a>b ? a : b;} 
+	template<int DIM, typename T>
+	inline T norm2(const Point<DIM,T>& point) noexcept {
+		if constexpr (sizeof(T) == 4) {return T{std::sqrt(static_cast<float>(point.squaredNorm()))};}
+		if constexpr (sizeof(T) == 8) {return T{std::sqrt(static_cast<double>(point.squaredNorm()))};}
+	}
 
-	//////////////////////////////////////////////////////////
-	// Vector operations
-	//////////////////////////////////////////////////////////
-	template <int dim, typename T>
-	constexpr T dot(const Point<dim,T> &left, const Point<dim,T> &right) {
-		T result = 0;
-		for (int i=0; i<dim; i++) {result += left[i] * right[i];}
+	template<int DIM, typename T>
+	inline constexpr T norm1(const Point<DIM,T>& point) noexcept {return point.norm1();}
+
+	template<int DIM, typename T>
+	inline constexpr T norminfty(const Point<DIM,T>& point) noexcept {return point.norminfty();}
+
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> normalize(const Point<DIM,T>& point) noexcept
+	{
+		T scale{norm2(point)};
+		assert(scale!=T{0});
+		return point/scale;
+	}
+
+	//////////////////////////////////////////////////////////////////////////
+	//////////////////////// OTHER UTILITY OPERATIONS ////////////////////////
+	//////////////////////////////////////////////////////////////////////////
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> abs(const Point<DIM,T>& point) noexcept {
+		Point<DIM,T> result{};
+		for (int i=0; i<DIM; i++) {result[i] = abs(point[i]);}
 		return result;
 	}
 
-	template <typename T, typename U>
-	constexpr Point<3, T> cross(const Point<3,T> &left, const Point<3,T> &right) {
-		Point<3, T> result;
-		result[0] = left[1]*right[2] - left[2]*right[1];
-		result[1] = left[2]*right[0] - left[0]*right[2];
-		result[2] = left[0]*right[1] - left[1]*right[0];
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> elmax(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{};
+		for (int i=0; i<DIM; i++) {result[i] = max(left[i], right[i]);}
 		return result;
 	}
 
-	template <int dim, typename T>
-	constexpr T squaredNorm(const Point<dim,T> &point) {
-		T result = 0;
-		for (int i=0; i<dim; i++) {result += point[i] * point[i];}
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> elmin(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{};
+		for (int i=0; i<DIM; i++) {result[i] = min(left[i], right[i]);}
 		return result;
 	}
 
-	template <int dim, typename T>
-	inline T norm2(const Point<dim,T> &point) {
-		return T{std::sqrt(static_cast<double>(squaredNorm(point)))}; //calcualate as a double. try not to use.
-	}
+	template<int DIM, typename T>
+	inline constexpr T max(const Point<DIM,T>& point) {return point.max();}
 
-	template <int dim, typename T>
-	constexpr T norm1(const Point<dim,T> &point) {
-		T result = 0;
-		for (int i=0; i<dim; i++) {result += abs(point[i]);}
-		return result;
-	}
+	template<int DIM, typename T>
+	inline constexpr T min(const Point<DIM,T>& point) {return point.min();}
 
-	template <int dim, typename T>
-	constexpr T norminfty(const Point<dim,T> &point) {
-		T result = 0;
-		for (int i=0; i<dim; i++) {
-			result = max(result, abs(point[i]));
-		}
-		return result;
-	}
+	template<int DIM, typename T>
+	inline constexpr T sum(const Point<DIM,T>& point) {return point.sum();}
 
-	template <int dim, typename T>
-	constexpr Point<dim,T> normalize(const Point<dim,T> &point) {
-		T scale = norm2(point);
-		return point / scale;
-	}
+	template<int DIM, typename T>
+	inline constexpr T prod(const Point<DIM,T>& point) {return point.prod();}
 
-	//////////////////////////////////////////////////////////
-	// Element-wise operations
-	//////////////////////////////////////////////////////////
-	template <int dim, typename T>
-	constexpr Point<dim,T> abs(const Point<dim,T> &point) {
-		Point<dim,T> result;
-		for (int i=0; i<dim; i++) {result[i] = abs(point[i]);}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim, T> elmax(const Point<dim,T> &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = max(left[i], right[i]);}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr Point<dim, T> elmin(const Point<dim,T> &left, const Point<dim,T> &right) {
-		Point<dim, T> result;
-		for (int i=0; i<dim; i++) {result[i] = min(left[i], right[i]);}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr T max(const Point<dim,T> &point) {
-		T result = point[0];
-		for (int i=1; i<dim; i++) {result = max(result, point[i]);}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr T min(const Point<dim,T> &point) {
-		T result = point[0];
-		for (int i=1; i<dim; i++) {result = min(result, point[i]);}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr T sum(const Point<dim,T>& point) {
-		T result(0);
-		for (int i=0; i<dim; i++) {result += point[i];}
-		return result;
-	}
-
-	template <int dim, typename T>
-	constexpr T prod(const Point<dim,T>& point) {
-		T result(1);
-		for (int i=0; i<dim; i++) {result *= point[i];}
-		return result;
+	template<int DIM, typename T>
+	std::ostream& operator<<(std::ostream& os, const Point<DIM,T>& point) {
+		for (int i = 0; i < DIM-1; i++) {os << point[i] << " ";}
+		os << point[DIM-1];
+		return os;
 	}
 
 
@@ -411,16 +404,16 @@ namespace gutil {
 	/// @tparam U is the type that the arithmetic should be done in
 	/// @tparam T is the output type
 	////////////////////////////////////////////////////////////////////////////////
-	template <int dim, typename T, typename U, typename W>
-	constexpr Point<dim,T> sorted_sum(const std::vector<Point<dim,W>> &points) noexcept {
-		if (points.empty()) {return Point<dim,T>();}
+	template<int DIM, typename T, typename U, typename W>
+	constexpr Point<DIM,T> sorted_sum(const std::vector<Point<DIM,W>>& points) noexcept {
+		if (points.empty()) {return Point<DIM,T>();}
 		
-		Point<dim,T> result;
+		Point<DIM,T> result;
 		std::vector<T> component;
 		component.reserve(points.size());
-		for (int i = 0; i < dim; i++) {
+		for (int i = 0; i < DIM; i++) {
 			component.clear();
-			for ( const Point<dim,W> &p : points) {
+			for ( const Point<DIM,W> &p : points) {
 				component.push_back(static_cast<U>(p[i]));
 			}
 
@@ -436,20 +429,10 @@ namespace gutil {
 		return result;
 	}
 
-	////////////////////////////////////////////////////////////////////////////////
 	/// Convenient way to call the sorted sum.
-	////////////////////////////////////////////////////////////////////////////////
-	template <int dim, typename T, typename U, typename W>
-	constexpr Point<dim,T> sorted_sum(std::initializer_list<Point<dim,W>> points) noexcept {
-	    return sorted_sum<dim, T, U, W>(std::vector<Point<dim,W>>(points.begin(), points.end()));
-	}
-
-	/// Print to ostream
-	template <int dim, typename T>
-	std::ostream& operator<<(std::ostream& os, const Point<dim,T> &point) {
-		for (int i = 0; i < dim-1; i++) {os << point[i] << " ";}
-		os << point[dim-1];
-		return os;
+	template<int DIM, typename T, typename U, typename W>
+	constexpr Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,W>> points) noexcept {
+	    return sorted_sum<DIM,T,U,W>(std::vector<Point<DIM,W>>(points.begin(), points.end()));
 	}
 
 }

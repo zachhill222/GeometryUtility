@@ -8,7 +8,6 @@
 #include <atomic>
 #include <thread>
 
-
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
 
@@ -38,7 +37,7 @@ namespace gutil {
 		// Data indices stored in this node
 		size_t* data_idx = nullptr;
 		int cursor = 0;
-
+		
 		// Synchronization
 		std::atomic<bool> is_leaf{true};
 		mutable std::shared_mutex mutex;
@@ -164,8 +163,6 @@ namespace gutil {
 	template<int DIM, int N_DATA, typename T>
 	std::ostream& operator<<(std::ostream& os, const OctreeParallelNode<DIM,N_DATA,T>* node) {
 		if (node==nullptr) {os << "NULL\n"; return os;}
-
-		// os << node->parent << "\n";
 
 		os << "thread id: " << std::this_thread::get_id() << "\n"
 		   << "bbox: " << node->bbox << "\n"

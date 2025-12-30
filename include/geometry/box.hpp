@@ -11,14 +11,16 @@
 #include <type_traits>
 
 namespace gutil {
-	template <int dim=3, typename T=double>
+	template<int DIM=3, typename T=double>
 	class Box {
 	private:
-		Point<dim,T> _low;
-		Point<dim,T> _high;
+		Point<DIM,T> _low;
+		Point<DIM,T> _high;
 
 	public:
-		using Point_t = Point<dim,T>;
+		static constexpr int dim = DIM;
+		using scalar_type = T;
+		using Point_t = Point<DIM,T>;
 
 		////////////////////////////////////////////////////////////////
 		// Constructors
@@ -28,30 +30,18 @@ namespace gutil {
 		constexpr Box() noexcept : _low(Point_t(-1.0)), _high(Point_t(1.0)) {}
 
 		// Constructor from two points (automatically orders them)
-		constexpr Box(const Point_t &vertex1, const Point_t &vertex2) noexcept
-			: _low(elmin(vertex1, vertex2)), _high(elmax(vertex1, vertex2)) {
+		constexpr Box(const Point_t &vertex1, const Point_t &vertex2) noexcept : 
+			_low(elmin(vertex1, vertex2)), _high(elmax(vertex1, vertex2)) {
 			assert(_low < _high);
 		}
 
-		// Copy constructor
+		//use default copy and move constructors and assignment
 		constexpr Box(const Box &other) noexcept = default;
-
-		// Move constructor
 		constexpr Box(Box &&other) noexcept = default;
-
-		// Destructor
-		~Box() = default;
-
-		////////////////////////////////////////////////////////////////
-		// Assignment operators
-		////////////////////////////////////////////////////////////////
-		
-		// Copy assignment
 		constexpr Box& operator=(const Box &other) = default;
-
-		// Move assignment
 		constexpr Box& operator=(Box &&other) noexcept = default;
-
+		~Box() = default;
+		
 		////////////////////////////////////////////////////////////////
 		// Attributes
 		////////////////////////////////////////////////////////////////
@@ -62,7 +52,7 @@ namespace gutil {
 		constexpr T diameter() const noexcept {return norm2(_high - _low);}
 		constexpr T volume() const noexcept {
 			T vol = 1;
-			for (int i = 0; i < dim; i++) {
+			for (int i = 0; i < DIM; i++) {
 				vol *= (_high[i] - _low[i]);
 			}
 			return vol;
@@ -75,10 +65,10 @@ namespace gutil {
 		/// Get i-th vertex in VTK pixel/voxel order
 		/// Binary encoding: bit i determines whether to use low[i] or high[i]
 		constexpr Point_t voxelvertex(const int idx) const noexcept {
-			assert(idx >= 0 && idx < (1 << dim));
+			assert(idx >= 0 && idx < (1 << DIM));
 			Point_t vertex;
 			int p = idx;
-			for (int i = 0; i < dim; i++) {
+			for (int i = 0; i < DIM; i++) {
 				vertex[i] = (p & 1) ? _high[i] : _low[i];
 				p >>= 1;
 			}
@@ -87,7 +77,7 @@ namespace gutil {
 
 		/// Get i-th vertex in VTK quad/hexahedron order
 		/// (swaps vertices 2-3 and 6-7 from voxel ordering)
-		constexpr Point_t hexvertex(const int idx) const noexcept requires(dim==2 or dim==3) {
+		constexpr Point_t hexvertex(const int idx) const noexcept requires(DIM==2 or DIM==3) {
 			switch (idx) {
 				case 2: return voxelvertex(3);
 				case 3: return voxelvertex(2);
@@ -110,13 +100,13 @@ namespace gutil {
 		}
 		
 		/// Check if this box contains the other box
-		constexpr bool contains(const Box<dim,T> &other) const noexcept {
+		constexpr bool contains(const Box<DIM,T> &other) const noexcept {
 			return _low <= other._low && other._high <= _high;
 		}
 		
 		/// Check if this box intersects the other box (check projection onto each axis)
-		constexpr bool intersects(const Box<dim,T> &other) const noexcept {
-			for (int i = 0; i < dim; i++) {
+		constexpr bool intersects(const Box<DIM,T> &other) const noexcept {
+			for (int i = 0; i < DIM; i++) {
 				if (_high[i] < other._low[i] || other._high[i] < _low[i]) {
 					return false;
 				}
@@ -129,7 +119,7 @@ namespace gutil {
 			T maxdot = dot(direction, (*this)[0]);
 			int maxind = 0;
 
-			for (int i = 1; i < (1 << dim); i++) {
+			for (int i = 1; i < (1 << DIM); i++) {
 				T tempdot = dot(direction, (*this)[i]);
 				if (tempdot > maxdot) {
 					maxdot = tempdot;
@@ -192,19 +182,19 @@ namespace gutil {
 		}
 
 		/// Enlarge this box to contain the other box
-		constexpr Box& combine(const Box<dim,T>& other) noexcept {
+		constexpr Box& combine(const Box<DIM,T>& other) noexcept {
 			_low  = elmin(_low, other._low);
 			_high = elmax(_high, other._high);
 			return *this;
 		}
 
 		/// Return union of two boxes (same as Box& combine(), but does not alter this box)
-		constexpr Box combine(const Box<dim,T>& other) const noexcept {
+		constexpr Box combine(const Box<DIM,T>& other) const noexcept {
 			return Box(elmin(_low, other._low), elmax(_high, other._high));
 		}
 
 		/// Return intersection of two boxes (undefined if boxes don't intersect)
-		constexpr Box intersection(const Box<dim,T>& other) const {
+		constexpr Box intersection(const Box<DIM,T>& other) const {
 			assert(intersects(other));
 			return Box(elmax(_low, other._low), elmin(_high, other._high));
 		}
@@ -213,11 +203,11 @@ namespace gutil {
 		// Comparison
 		////////////////////////////////////////////////////////////////
 		
-		constexpr bool operator==(const Box<dim,T> &other) const {
+		constexpr bool operator==(const Box<DIM,T> &other) const {
 			return _low == other._low && _high == other._high;
 		}
 
-		constexpr bool operator!=(const Box<dim,T> &other) const {
+		constexpr bool operator!=(const Box<DIM,T> &other) const {
 			return !(*this == other);
 		}
 	};
@@ -225,20 +215,20 @@ namespace gutil {
 	////////////////////////////////////////////////////////////////
 	// Free functions
 	////////////////////////////////////////////////////////////////
-	template <int dim, typename T, typename U>
-	constexpr Box<dim,T> operator*(const U &scale, const Box<dim,T> &box) {
+	template <int DIM, typename T, typename U>
+	constexpr Box<DIM,T> operator*(const U &scale, const Box<DIM,T> &box) {
 		return box * scale;
 	}
 
-	template <int dim, typename T>
-	constexpr T distance_squared(const Box<dim,T> &box, const Point<dim,T> &point) {
+	template <int DIM, typename T>
+	constexpr T distance_squared(const Box<DIM,T> &box, const Point<DIM,T> &point) {
 		if (box.contains(point)) {
 			return T(0);
 		}
 
 		// Compute distance to closest point on box surface
 		T dist_sq = 0;
-		for (int i = 0; i < dim; i++) {
+		for (int i = 0; i < DIM; i++) {
 			if (point[i] < box.low()[i]) {
 				T diff = box.low()[i] - point[i];
 				dist_sq += diff * diff;
@@ -250,13 +240,13 @@ namespace gutil {
 		return dist_sq;
 	}
 
-	template <int dim, typename T>
-	inline T distance(const Box<dim,T> &box, const Point<dim,T> &point) {
+	template <int DIM, typename T>
+	inline T distance(const Box<DIM,T> &box, const Point<DIM,T> &point) {
 		return std::sqrt(distance_squared(box, point));
 	}
 
-	template<int dim, typename T>
-	std::ostream& operator<<(std::ostream& os, const Box<dim,T>& box) {
+	template<int DIM, typename T>
+	std::ostream& operator<<(std::ostream& os, const Box<DIM,T>& box) {
 		return os << "(" << box.low() << ") to (" << box.high() << ")";
 	}
 }

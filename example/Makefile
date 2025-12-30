@@ -4,7 +4,7 @@ INCLUDE = -I../include
 CXX        = g++ -std=c++20
 OPT        = -O0
 PAR        =
-DEBUG      = -pg -g -Wall #-fsanitize=thread
+DEBUG      = -pg -g -Wall
 
 #redefine for testing optimizations
 OPT        = -O3

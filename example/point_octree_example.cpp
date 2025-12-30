@@ -100,6 +100,44 @@ void check_octree_find(const Octree_t& octree) {
 	else {std::cout << "FAIL\n";}
 }
 
+void check_octree_move_data(Octree_t& octree) {
+	Box_t region_to_move = 0.5*octree.bbox(); //center of bounding box
+	std::vector<size_t> indices_to_move = octree.get_data_in_box(region_to_move);
+
+	std::cout << "The octree found " << indices_to_move.size() << " points in the box: " << region_to_move << std::endl;
+
+	#ifdef _OPENMP
+		#pragma omp parallel for
+	#endif
+	for (size_t i=0; i<indices_to_move.size(); i++) {
+		const size_t idx = indices_to_move[i];
+		Point_t new_data = -octree[idx];
+		octree.replace(std::move(new_data), idx);
+	}
+
+	//ensure that the tree is still valid after changing data
+	//most likely unnecessary data located at a single point.
+	octree.rebuild_tree();
+
+	indices_to_move = octree.get_data_in_box(region_to_move);
+	std::cout << "After moving data, the octree found " << indices_to_move.size() << " points in the box: " << region_to_move << std::endl;
+}
+
+void print_octree_summary(const Octree_t& octree) {
+	//print basic stats from the octree
+	auto stats = octree.get_tree_stats();
+	std::cout << "\nThe octree has " << stats.n_nodes << " octree nodes with " << stats.n_leafs << " leafs\n";
+	std::cout << "The octree is storing " << stats.n_used_indices << "/" << stats.n_indices_capacity << " data indices\n";
+	std::cout << "The octree has a maximum depth of " << stats.max_depth << std::endl;
+
+	double storage_memory_in_bytes  = octree.size() * sizeof(typename Octree_t::Data_t);
+	double byte2MiB = std::pow(0.5, 20);
+
+	std::cout << "The octree structure itself is using " << stats.memory_used_bytes*byte2MiB << "/" << stats.memory_reserved_bytes*byte2MiB << " MiB\n";
+	std::cout << "The data itself is using " << storage_memory_in_bytes*byte2MiB << " MiB\n";
+
+	std::cout << "The octree bounding box is " << octree.bbox() << std::endl;
+}
 
 
 int main(int argc, char* argv[]) {
@@ -135,21 +173,14 @@ int main(int argc, char* argv[]) {
 	//verify that i==octre.find(octree[i]) for all i
 	check_octree_find(octree);
 
-	//print basic stats from the octree
-	auto stats = octree.get_tree_stats();
-	std::cout << "\nThe octree has " << stats.n_nodes << " octree nodes with " << stats.n_leafs << " leafs\n";
-	std::cout << "The octree is storing " << stats.n_used_indices << "/" << stats.n_indices_capacity << " data indices\n";
-	std::cout << "The octree has a maximum depth of " << stats.max_depth << std::endl;
+	//print octree summary
+	print_octree_summary(octree);
 
-	double storage_memory_in_bytes  = octree.size() * sizeof(typename Octree_t::Data_t);
-	double byte2MiB = std::pow(0.5, 20);
-
-	std::cout << "The octree structure itself is using " << stats.memory_used_bytes*byte2MiB << "/" << stats.memory_reserved_bytes*byte2MiB << " MiB\n";
-	std::cout << "The data itself is using " << storage_memory_in_bytes*byte2MiB << " MiB\n";
-
-	Box_t search_box(Point_t{0}, 0.5*Point_t{N});
-	std::vector<size_t> found_idx = octree.get_data_in_box(search_box);
-	std::cout << "The octree found " << found_idx.size() << " points in the box: " << search_box << std::endl;
+	//test moving data
+	check_octree_move_data(octree);
+	
+	//print octree summary
+	print_octree_summary(octree);
 
 	return 0;
 }

@@ -9,6 +9,7 @@
 #include <shared_mutex>
 #include <thread>
 #include <chrono>
+#include <optional>
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
@@ -88,7 +89,7 @@ namespace gutil {
 		// Thread management
 		mutable std::mutex _thread_manage_mutex; //lock when determining which threads should change tasks
 		int n_flushing_threads{0};
-		static constexpr int n_max_flushing_threads = 4;
+		static constexpr int n_max_flushing_threads = 400;
 
 		// Data storage
 		std::vector<Data_t> _data;
@@ -175,21 +176,25 @@ namespace gutil {
 		////////////////////////////////////////////////////////////
 		inline constexpr const Data_t& operator[](const size_t idx) const noexcept {
 			assert(idx < size());
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
 			return _data[idx];
 		}
 
 		inline constexpr Data_t& operator[](const size_t idx) noexcept {
 			assert(idx < size());
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
 			return _data[idx];
 		}
 
 		constexpr const Data_t& at(const size_t idx) const {
 			if(idx >= size()) {throw std::runtime_error("BasicParallelOctree: index out of range");}
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
 			return _data[idx];
 		}
 
 		constexpr Data_t& at(const size_t idx) {
 			if(idx >= size()) {throw std::runtime_error("BasicParallelOctree: index out of range");}
+			std::shared_lock<std::shared_mutex> lock(_tree_mutex);
 			return _data[idx];
 		}
 
@@ -271,7 +276,7 @@ namespace gutil {
 		}
 
 		/// Change data at the specified index
-		void replace(Data_t&& new_val, const size idx) {
+		void replace(Data_t&& new_val, const size_t idx) {
 			assert(idx<size());
 			if (!isValid(_root->bbox, new_val)) {
 				resize_to_fit_data(new_val);
@@ -282,13 +287,34 @@ namespace gutil {
 			_recursive_remove_index(_root, idx);
 			_data[idx] = std::move(new_val);
 			Node_t* start_node = _recursive_find_best_node(_root, _data[idx]);
-			[[maybe_unused]] int flag = _recursive_insert_data<true>(start_node, _data[idx]);
+			[[maybe_unused]] int flag = _recursive_insert_data<true>(start_node, _data[idx], idx);
 			assert(flag==1);
 		}
 
-		void replace(const Data_t& new_val, const size idx) {
+		void replace(const Data_t& new_val, const size_t idx) {
 			Data_t new_val_copy(new_val);
 			replace(std::move(new_val_copy), idx);
+		}
+
+		/// ensure the entire tree is valid. usefull after changing the bounding box.
+		void rebuild_tree()
+		{
+			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
+
+			for (size_t idx=0; idx<size(); idx++) {
+				int flag = _recursive_insert_data<true>(_root, _data[idx], idx);
+				if (flag == -1) {
+					throw std::runtime_error("BasicParallelOctree::rebuild_tree() - data at index " + std::to_string(idx) + " is invalid");
+				}
+
+				if constexpr (SINGLE_DATA) {
+					if (flag==1) {
+						//the data should have already existed
+						_recursive_remove_index<true>(_root, idx);
+						_recursive_insert_data<true>(_root, _data[idx], idx);
+					}
+				}
+			}
 		}
 
 	private:
@@ -324,7 +350,8 @@ namespace gutil {
 		bool _switch_to_flush();
 
 		/// Remove index idx from all leaf nodes
-		/// _data[idx] must be valid (and the data that will be romoved from the tree)
+		/// _data[idx] must be valid (and the data that will be removed from the tree)
+		template<bool SEARCH_ALL=false>
 		void _recursive_remove_index(Node_t* node, const size_t idx);
 
 		/////////////////////////////////////////////////
@@ -525,8 +552,8 @@ namespace gutil {
 
 		
 		//make a shared lock all the way down
-		std::shared_lock<std::shared_mutex> lock(node->mutex, std::defer_lock);
-		if constexpr (LOCKED) {lock.lock();}
+		std::optional<std::shared_lock<std::shared_mutex>> lock;
+		if constexpr (LOCKED) {lock.emplace(node->mutex);}
 
 		if (!isLeaf(node))
 		{
@@ -764,6 +791,7 @@ namespace gutil {
 
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	template<bool SEARCH_ALL>
 	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_remove_index(
 		OctreeParallelNode<DIM,N_DATA,T>* node,
 		const size_t idx)
@@ -783,8 +811,11 @@ namespace gutil {
 			for (int c=0; c<N_CHILDREN; c++)
 			{
 				assert(node->children[c]);
-				if (isValid(node->children[c], _data[idx])) {
-					_recursive_remove_index(node->children[c], idx);
+				if constexpr (SEARCH_ALL) {
+					_recursive_remove_index<SEARCH_ALL>(node->children[c], idx);
+				}
+				else if (isValid(node->children[c]->bbox, _data[idx])) {
+					_recursive_remove_index<SEARCH_ALL>(node->children[c], idx);
 					if constexpr (SINGLE_DATA) {break;}
 				}
 			}
@@ -795,7 +826,7 @@ namespace gutil {
 			std::lock_guard<std::shared_mutex> write_lock(node->mutex);
 
 			//make sure we are still in a leaf node
-			if (!isLeaf(node)) {return _recursive_remove_index(node, idx);}
+			if (!isLeaf(node)) {return _recursive_remove_index<SEARCH_ALL>(node, idx);}
 			removeDataIdx(node, idx);
 		}
 	}

@@ -6,13 +6,13 @@
 	#include <omp.h>
 #endif
 
+constexpr int n_sides = 6;
 using Scalar_t = gutil::FixedPoint<int64_t>;
 // using Scalar_t = float;
-constexpr int n_sides = 6;
-using Octree_t = gutil::RegularPolygonOctree<n_sides,Scalar_t,64>;
-using Index_t  = gutil::Point<DIMENSION,size_t>;
-using Point_t  = gutil::Point<DIMENSION,Scalar_t>;
-using Box_t    = gutil::Box<DIMENSION,Scalar_t>;
+using Octree_t  = gutil::RegularPolygonOctree<n_sides,Scalar_t,64>;
+using Index_t   = gutil::Point<DIMENSION,size_t>;
+using Point_t   = gutil::Point<DIMENSION,Scalar_t>;
+using Box_t     = gutil::Box<DIMENSION,Scalar_t>;
 using Polygon_t = gutil::RegularPolygon<n_sides,Scalar_t>;
 
 void generate_polygons(Octree_t& octree, const Index_t& N) {
