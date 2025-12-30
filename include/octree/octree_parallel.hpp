@@ -89,7 +89,7 @@ namespace gutil {
 		// Thread management
 		mutable std::mutex _thread_manage_mutex; //lock when determining which threads should change tasks
 		int n_flushing_threads{0};
-		static constexpr int n_max_flushing_threads = 400;
+		static constexpr int n_max_flushing_threads = 400; //self balancing seems best
 
 		// Data storage
 		std::vector<Data_t> _data;
@@ -101,6 +101,7 @@ namespace gutil {
 		};
 
 		MultipleInMultipleOut<QueueData_t> _queue;
+		bool _bbox_has_changed = false;
 	public:
 		////////////////////////////////////////////////////////////
 		// Construction and destruction
@@ -231,18 +232,23 @@ namespace gutil {
 		// Interact with the bounding box
 		////////////////////////////////////////////////////////////
 		inline const Box_t& bbox() const {return _root->bbox;}
+		inline bool bbox_has_changed() {return _bbox_has_changed;}
 
 		void resize_to_fit_data(const Data_t& val) {
 			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			while (!isValid(_root->bbox, val)) {
 				_recursive_expand_bbox(T{2} * _root->bbox);
 			}
+
+			_bbox_has_changed=true;
 		}
 
 		void set_bbox(const Box_t& new_bbox) {
 			assert(new_bbox.contains(_root->bbox));
 			std::lock_guard<std::shared_mutex> tree_lock(_tree_mutex);
 			_recursive_expand_bbox(new_bbox);
+
+			_bbox_has_changed=true;
 		}
 		
 		////////////////////////////////////////////////////////////
@@ -300,7 +306,7 @@ namespace gutil {
 		void rebuild_tree()
 		{
 			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
-
+			//TODO: this should be in parallel
 			for (size_t idx=0; idx<size(); idx++) {
 				int flag = _recursive_insert_data<true>(_root, _data[idx], idx);
 				if (flag == -1) {
@@ -315,6 +321,8 @@ namespace gutil {
 					}
 				}
 			}
+
+			_bbox_has_changed = false;
 		}
 
 	private:
