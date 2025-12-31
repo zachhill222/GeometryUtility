@@ -14,5 +14,7 @@
 #include "math/matrix.hpp"
 #include "math/quaternion.hpp"
 
+#include "algorithms/convex_collision.hpp"
+
 #include "default_octrees/point_octree.hpp"
 #include "default_octrees/regular_polygon_octree.hpp"

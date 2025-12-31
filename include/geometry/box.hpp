@@ -116,17 +116,17 @@ namespace gutil {
 
 		/// Find the support point: vertex that maximizes dot(vertex, direction)
 		constexpr Point_t support(const Point_t &direction) const noexcept {
-			T maxdot = dot(direction, (*this)[0]);
+			T maxdot = dot(direction, voxelvertex(0));
 			int maxind = 0;
 
 			for (int i = 1; i < (1 << DIM); i++) {
-				T tempdot = dot(direction, (*this)[i]);
+				T tempdot = dot(direction, voxelvertex(i));
 				if (tempdot > maxdot) {
 					maxdot = tempdot;
 					maxind = i;
 				}
 			}
-			return (*this)[maxind];
+			return voxelvertex(maxind);
 		}
 
 		////////////////////////////////////////////////////////////////

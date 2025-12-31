@@ -2,6 +2,7 @@
 
 #include "geometry/point.hpp"
 #include "geometry/polytope.hpp"
+#include "algorithms/convex_collision.hpp"
 
 #include <initializer_list>
 #include <cmath>
@@ -132,20 +133,24 @@ namespace gutil {
 			return true;
 		}
 
-		constexpr bool intersects(const Box<2,T>& box) const noexcept
+		template<typename S>
+		constexpr bool intersects(const S& other) const noexcept
 		{
-			//check if box contains a vertex
-			for (const Point_t& v : *this) {
-				if (box.contains(v)) {return true;}
-			}
+			// //check if box contains a vertex
+			// for (const Point_t& v : *this) {
+			// 	if (box.contains(v)) {return true;}
+			// }
 
-			//check if polygon contains a box vertex
-			for (int i=0; i<4; i++) {
-				if (contains(box.voxelvertex(i))) {return true;}
-			}
+			// //check if polygon contains a box vertex
+			// for (int i=0; i<4; i++) {
+			// 	if (contains(box.voxelvertex(i))) {return true;}
+			// }
 
-			//both shapes are convex polygons if they intersect, then one must contain a vertex of the other
-			return false;
+			// //check if any edges intersect
+
+
+			// return false;
+			return collides_GJK<RegularPolygon<N,T>, S, 2, T>(*this, other);
 		}
 
 	protected:

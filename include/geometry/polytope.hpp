@@ -14,7 +14,7 @@ namespace gutil {
 	/// @tparam DIM the spacial dimension the polytope is embedded in
 	/// @tparam T   the scalar type that models the real line
 	////////////////////////////////
-	template<int N, int DIM, typename T=double>	requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T=double>
 	class Polytope {
 	public:
 		//type aliases and helpful constants
@@ -25,9 +25,11 @@ namespace gutil {
 		//constructors
 		constexpr Polytope() noexcept {}
 		Polytope(std::initializer_list<Point_t> list) noexcept {
-			if (list.size()<N) {std::terminate();}
-
-			for (int i=0; i<N; i++) {_vertices[i] = std::move(list[i]);}
+			int i;
+			for (auto it=list.begin(); it!=list.end() and i<N; ++it, ++i) {
+				_vertices[i] = std::move(list[i]);
+			}
+			for (;i<N; i++) {_vertices[i] = Point_t(T{0});}
 		}
 
 		constexpr Polytope(const Polytope& other) noexcept : _vertices{other._vertices} {}
@@ -79,7 +81,7 @@ namespace gutil {
 
 	//POLYTOPE IMPLEMENTATION
 
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	template<int M>
 	constexpr bool Polytope<N,DIM,T>::share_vertex(const Polytope<M,DIM,T>& other) const noexcept {
 		for (int i=0; i<N; i++) {
@@ -90,7 +92,7 @@ namespace gutil {
 		return false;
 	}
 
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	template<int M>
 	constexpr int Polytope<N,DIM,T>::n_shared_vertices(const Polytope<M,DIM,T>& other) const noexcept {
 		int count = 0;
@@ -102,19 +104,19 @@ namespace gutil {
 		return count;
 	}
 
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	inline constexpr const Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) const noexcept {
 		assert(0<=idx and idx<N);
 		return _vertices[idx];
 	}
 	
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	inline constexpr Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) noexcept {
 		assert(0<=idx and idx<N);
 		return _vertices[idx];
 	}
 	
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	constexpr Point<DIM,T> Polytope<N,DIM,T>::support(const Point<DIM,T>& direction) const noexcept {
 		T maxdot = dot(direction, _vertices[0]);
 		int maxind = 0;
@@ -130,7 +132,7 @@ namespace gutil {
 		return _vertices[maxind];
 	}
 	
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	constexpr Box<DIM,T> Polytope<N,DIM,T>::bbox() const noexcept {
 		Point<DIM,T> low  = _vertices[0];
 		Point<DIM,T> high = _vertices[0]; 
@@ -143,7 +145,7 @@ namespace gutil {
 		return Box<DIM,T>{low,high};
 	}
 
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	constexpr bool operator==(const Polytope<N,DIM,T>& left, const Polytope<N,DIM,T>& right) {
 		for (int i=0; i<N; i++) {
 			if (left[i] != right[i]) {return false;}
@@ -151,7 +153,7 @@ namespace gutil {
 		return true;
 	}
 
-	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int N, int DIM, typename T>
 	std::ostream& operator<<(std::ostream& stream, const Polytope<N,DIM,T>& polytope) {
 		int i=0;
 		for (const auto& v : polytope){
