@@ -100,8 +100,6 @@ namespace gutil {
 			return *this;
 		}
 
-		inline constexpr const Point_t& center() const noexcept {return m_center;}
-
 		//tangent edge in the positive orientation (not normalized)
 		constexpr Point_t edge_tangent(const int i) const noexcept
 		{
@@ -136,22 +134,12 @@ namespace gutil {
 		template<typename S>
 		constexpr bool intersects(const S& other) const noexcept
 		{
-			// //check if box contains a vertex
-			// for (const Point_t& v : *this) {
-			// 	if (box.contains(v)) {return true;}
-			// }
-
-			// //check if polygon contains a box vertex
-			// for (int i=0; i<4; i++) {
-			// 	if (contains(box.voxelvertex(i))) {return true;}
-			// }
-
-			// //check if any edges intersect
-
-
-			// return false;
 			return collides_GJK<RegularPolygon<N,T>, S, 2, T>(*this, other);
 		}
+
+		inline constexpr const Point_t& center() const noexcept {return m_center;}
+		inline constexpr T radius() const noexcept {return m_outer_radius;}
+		inline constexpr T diameter() const noexcept {return T{2}*m_outer_radius;}
 
 	protected:
 		Point_t m_center;

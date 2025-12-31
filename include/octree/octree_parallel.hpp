@@ -81,6 +81,10 @@ namespace gutil {
 		};
 
 		static constexpr int N_CHILDREN = Node_t::N_CHILDREN;
+	
+	protected:
+		std::vector<Data_t> _data; //sometimes derrived classes should be able to access
+	
 	private:
 		// Tree structure
 		Node_t* _root = nullptr;
@@ -92,7 +96,6 @@ namespace gutil {
 		static constexpr int n_max_flushing_threads = 400; //self balancing seems best
 
 		// Data storage
-		std::vector<Data_t> _data;
 		std::atomic<size_t> _next_data_idx{0};
 
 		struct QueueData_t {

@@ -69,10 +69,10 @@ namespace gutil {
 		constexpr Box<DIM,T> bbox() const noexcept; //axis aligned bounding box
 		
 		template<int M>
-		constexpr bool share_vertex(const Polytope<M,DIM,T>& other) const noexcept;
+		constexpr bool share_vertex(const Polytope<M,DIM,T>& other, const T& tol=0) const noexcept;
 		
 		template<int M>
-		constexpr int n_shared_vertices(const Polytope<M,DIM,T>& other) const noexcept;
+		constexpr int n_shared_vertices(const Polytope<M,DIM,T>& other, const T& tol=0) const noexcept;
 
 	protected:
 		std::array<Point_t, N> _vertices;
@@ -83,10 +83,11 @@ namespace gutil {
 
 	template<int N, int DIM, typename T>
 	template<int M>
-	constexpr bool Polytope<N,DIM,T>::share_vertex(const Polytope<M,DIM,T>& other) const noexcept {
+	constexpr bool Polytope<N,DIM,T>::share_vertex(const Polytope<M,DIM,T>& other, const T& tol) const noexcept {
+		const T tol2{tol*tol};
 		for (int i=0; i<N; i++) {
-			for (int j=i; j<M; j++) {
-				if (_vertices[i] == other[j]) {return true;}
+			for (int j=0; j<M; j++) {
+				if (squaredNorm(_vertices[i] - other[j]) <= tol2) {return true;}
 			}
 		}
 		return false;
@@ -94,11 +95,15 @@ namespace gutil {
 
 	template<int N, int DIM, typename T>
 	template<int M>
-	constexpr int Polytope<N,DIM,T>::n_shared_vertices(const Polytope<M,DIM,T>& other) const noexcept {
+	constexpr int Polytope<N,DIM,T>::n_shared_vertices(const Polytope<M,DIM,T>& other, const T& tol) const noexcept {
+		const T tol2{tol*tol};
 		int count = 0;
 		for (int i=0; i<N; i++) {
-			for (int j=i; j<M; j++) {
-				if (_vertices[i] == other[j]) {count++;}
+			for (int j=0; j<M; j++) {
+				if (squaredNorm(_vertices[i] - other[j]) <= tol2) {
+					count++;
+					break;
+				}
 			}
 		}
 		return count;
@@ -137,7 +142,7 @@ namespace gutil {
 		Point<DIM,T> low  = _vertices[0];
 		Point<DIM,T> high = _vertices[0]; 
 
-		for (int i=1; i<DIM; i++) {
+		for (int i=1; i<N; i++) {
 			low  = elmin(low, _vertices[i]);
 			high = elmax(high, _vertices[i]);
 		}

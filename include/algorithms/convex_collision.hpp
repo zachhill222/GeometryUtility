@@ -73,7 +73,7 @@ bool collides_GJK(const SA& S1, const SB& S2)
 	for (int i=0; i<GUTIL_MAX_GJK_ITERATIONS; i++){
 		A = support(S1,S2,direction);
 
-		if (dot(A,direction) < 0){
+		if (dot(A,direction) < T{0}){
 			return false;
 		}
 
@@ -226,10 +226,10 @@ bool triangleCase2(std::vector<Point<2,T>>& simplex, Point<2,T>& direction)
 	
 	// Make sure perpendiculars point away from triangle
 	// If AB_perp points toward C, flip it
-	if (dot(AB_perp, AC) > 0) {
+	if (dot(AB_perp, AC) > T{0}) {
 		AB_perp = -AB_perp;
 	}
-	if (dot(AC_perp, AB) > 0) {
+	if (dot(AC_perp, AB) > T{0}) {
 		AC_perp = -AC_perp;
 	}
 
@@ -243,7 +243,7 @@ bool triangleCase2(std::vector<Point<2,T>>& simplex, Point<2,T>& direction)
 		if (DOT > T{0}) {
 			// Origin is in AC region
 			Point<2,T> AC_perp_to_O{-AC[1], AC[0]};
-			if (dot(AC_perp_to_O, AO) < 0) {
+			if (dot(AC_perp_to_O, AO) < T{0}) {
 				AC_perp_to_O = -AC_perp_to_O;
 			}
 			direction = AC_perp_to_O;
