@@ -283,6 +283,12 @@ namespace gutil
 		return result-=right;
 	}
 
+	template<int DIM, typename T>
+	constexpr Point<DIM,T> operator*(const Point<DIM,T>& left, const Point<DIM,T>& right) {
+		Point<DIM,T> result{right};
+		return result*=right;
+	}
+
 	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
 	constexpr Point<DIM,T> operator*(const U& left, const Point<DIM,T>& right) {
 		Point<DIM,T> result{right};

@@ -20,8 +20,6 @@ namespace gutil {
 				this->_vertices[i][i-1] = T(1);
 			}
 		}
-
-		Simplex(std::initializer_list<Point_t> list) noexcept : BaseType(list) {}
 	};
 
 	//REGULAR POLYGON
@@ -44,10 +42,40 @@ namespace gutil {
 			}
 		}
 
-		constexpr RegularPolygon(const Point_t& center) noexcept :
-			RegularPolygon()
+		constexpr RegularPolygon(const Point_t& center) noexcept : RegularPolygon() {*this += center;}
+
+		constexpr RegularPolygon(const RegularPolygon& other) noexcept : 
+			BaseType(other), 
+			m_center(other.m_center),
+			m_inner_radius(other.m_inner_radius),
+			m_outer_radius(other.m_outer_radius) {}
+
+		constexpr RegularPolygon(RegularPolygon&& other) noexcept : BaseType(other), 
+			m_center(other.m_center),
+			m_inner_radius(other.m_inner_radius),
+			m_outer_radius(other.m_outer_radius) {}
+
+
+		constexpr RegularPolygon& operator=(const RegularPolygon& other) noexcept
 		{
-			*this += center;
+			if (this != &other) {
+				BaseType::operator=(other);
+				m_center = other.m_center;
+				m_inner_radius = other.m_inner_radius;
+				m_outer_radius = other.m_outer_radius;
+			}
+			return *this;
+		}
+
+		constexpr RegularPolygon& operator=(RegularPolygon&& other) noexcept
+		{
+			if (this != &other) {
+				BaseType::operator=(std::move(other));
+				m_center = other.m_center;
+				m_inner_radius = other.m_inner_radius;
+				m_outer_radius = other.m_outer_radius;
+			}
+			return *this;
 		}
 
 		constexpr RegularPolygon& operator+=(const Point_t& shift) noexcept
@@ -85,7 +113,7 @@ namespace gutil {
 		constexpr Point_t outer_normal(const int i) const noexcept
 		{
 			const Point_t tangent = edge_tangent(i);
-			return Point_t{tangent[1], tangent[0]};
+			return Point_t{tangent[1], -tangent[0]};
 		}
 
 		constexpr bool contains(const Point_t& point) const noexcept
@@ -97,7 +125,7 @@ namespace gutil {
 
 			//check dot product with all normal vectors
 			for (int i=0; i<N; i++) {
-				if (dot(shifted_point, outer_normal(i)) > T{0}) {return false;}
+				if (dot(point - this->_vertices[i], outer_normal(i)) > T{0}) {return false;}
 			}
 
 			//point is either interior or on the boundary
@@ -120,7 +148,7 @@ namespace gutil {
 			return false;
 		}
 
-	private:
+	protected:
 		Point_t m_center;
 		T m_inner_radius; //center to edge midpoint
 		T m_outer_radius; //center to vertex

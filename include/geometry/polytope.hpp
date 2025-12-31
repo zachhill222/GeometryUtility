@@ -30,6 +30,24 @@ namespace gutil {
 			for (int i=0; i<N; i++) {_vertices[i] = std::move(list[i]);}
 		}
 
+		constexpr Polytope(const Polytope& other) noexcept : _vertices{other._vertices} {}
+		constexpr Polytope(Polytope&& other) noexcept : _vertices{std::move(other._vertices)} {}
+
+		//assignment
+		constexpr Polytope& operator=(const Polytope& other) noexcept {
+			if (this != &other) {
+				_vertices = other._vertices;
+			}
+			return *this;
+		}
+
+		constexpr Polytope& operator=(Polytope&& other) noexcept {
+			if (this != &other) {
+				_vertices = std::move(other._vertices);	
+			}
+			return *this;
+		}
+
 		//accessors
 		inline constexpr const Point_t& operator[](const int idx) const noexcept;
 		inline constexpr Point_t& operator[](const int idx) noexcept;
@@ -47,6 +65,12 @@ namespace gutil {
 		//geometry operations
 		constexpr Point_t support(const Point_t& direction) const noexcept;
 		constexpr Box<DIM,T> bbox() const noexcept; //axis aligned bounding box
+		
+		template<int M>
+		constexpr bool share_vertex(const Polytope<M,DIM,T>& other) const noexcept;
+		
+		template<int M>
+		constexpr int n_shared_vertices(const Polytope<M,DIM,T>& other) const noexcept;
 
 	protected:
 		std::array<Point_t, N> _vertices;
@@ -54,6 +78,30 @@ namespace gutil {
 
 
 	//POLYTOPE IMPLEMENTATION
+
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int M>
+	constexpr bool Polytope<N,DIM,T>::share_vertex(const Polytope<M,DIM,T>& other) const noexcept {
+		for (int i=0; i<N; i++) {
+			for (int j=i; j<M; j++) {
+				if (_vertices[i] == other[j]) {return true;}
+			}
+		}
+		return false;
+	}
+
+	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
+	template<int M>
+	constexpr int Polytope<N,DIM,T>::n_shared_vertices(const Polytope<M,DIM,T>& other) const noexcept {
+		int count = 0;
+		for (int i=0; i<N; i++) {
+			for (int j=i; j<M; j++) {
+				if (_vertices[i] == other[j]) {count++;}
+			}
+		}
+		return count;
+	}
+
 	template<int N, int DIM, typename T> requires (N>2 and DIM>1)
 	inline constexpr const Point<DIM,T>& Polytope<N,DIM,T>::operator[](const int idx) const noexcept {
 		assert(0<=idx and idx<N);

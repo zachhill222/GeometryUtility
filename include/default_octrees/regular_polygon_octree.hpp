@@ -6,7 +6,6 @@
 #include "octree/octree_parallel.hpp"
 
 namespace gutil {
-	///Octree for points in space.
 	///Note that the data should be allowed to be put into multiple leaf nodes
 	template<int N_SIDES, typename T=double, int N_DATA=32>
 	class RegularPolygonOctree : public BasicParallelOctree<RegularPolygon<N_SIDES,T>, false, 2, N_DATA, T>
