@@ -17,6 +17,12 @@ namespace gutil
 	inline constexpr T abs(const T& val) noexcept {return val > T{0} ? val : -val;}
 
 	template<typename T>
+	inline constexpr T& abs(T& val) noexcept {
+		if (val<T{0}) {val=-val;}
+		return val;
+	}
+
+	template<typename T>
 	inline constexpr T min(const T& a, const T& b) noexcept {return a<b ? a : b;}
 
 	template<typename T>
@@ -152,7 +158,10 @@ namespace gutil
 		constexpr T norminfty() const noexcept
 		{
 			T result{abs(_data[0])};
-			for (int i=1; i<DIM; i++) {result = max(result, abs(_data[i]));}
+			for (int i=1; i<DIM; i++) {
+				T val = abs(_data[i]);
+				result = val > result ? val : result;
+			}
 			return result;
 		}
 
@@ -188,13 +197,17 @@ namespace gutil
 		constexpr T max() const noexcept
 		{
 			T result{_data[0]};
-			for (int i=1; i<DIM; i++) {result = max(result, _data[i]);}
+			for (int i=1; i<DIM; i++) {
+				result = _data[i] > result ? _data[i] : result;
+			}
 		}
 
 		constexpr T min() const noexcept
 		{
 			T result{_data[0]};
-			for (int i=1; i<DIM; i++) {result = min(result, _data[i]);}
+			for (int i=1; i<DIM; i++) {
+				result = _data[i] < result ? _data[i] : result;
+			}
 		}
 
 		//standard vector operations

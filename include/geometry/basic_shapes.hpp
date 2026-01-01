@@ -44,7 +44,7 @@ namespace gutil {
 		}
 
 		constexpr RegularPolygon(const Point_t& center) noexcept : RegularPolygon() {*this += center;}
-
+		
 		constexpr RegularPolygon(const RegularPolygon& other) noexcept : 
 			BaseType(other), 
 			m_center(other.m_center),
@@ -55,7 +55,6 @@ namespace gutil {
 			m_center(other.m_center),
 			m_inner_radius(other.m_inner_radius),
 			m_outer_radius(other.m_outer_radius) {}
-
 
 		constexpr RegularPolygon& operator=(const RegularPolygon& other) noexcept
 		{
@@ -145,5 +144,6 @@ namespace gutil {
 		Point_t m_center;
 		T m_inner_radius; //center to edge midpoint
 		T m_outer_radius; //center to vertex
+		T theta0{0};
 	};
 }
