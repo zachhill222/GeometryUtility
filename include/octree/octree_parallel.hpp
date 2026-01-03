@@ -83,13 +83,13 @@ namespace gutil {
 		static constexpr int N_CHILDREN = Node_t::N_CHILDREN;
 	
 	protected:
-		std::vector<Data_t> _data; //sometimes derrived classes should be able to access
-	
-	private:
+		std::vector<Data_t> _data; //sometimes derived classes should be able to access
 		// Tree structure
+
 		Node_t* _root = nullptr;
 		mutable std::shared_mutex _tree_mutex; //lock when doing large tree changes
-
+	
+	private:
 		// Thread management
 		mutable std::mutex _thread_manage_mutex; //lock when determining which threads should change tasks
 		int n_flushing_threads{0};
@@ -105,6 +105,7 @@ namespace gutil {
 
 		MultipleInMultipleOut<QueueData_t> _queue;
 		bool _bbox_has_changed = false;
+		
 	public:
 		////////////////////////////////////////////////////////////
 		// Construction and destruction
@@ -203,12 +204,18 @@ namespace gutil {
 		}
 
 		////////////////////////////////////////////////////////////
-		// Querries
+		// Queries
 		////////////////////////////////////////////////////////////
 		/// Find all data indices that MAY be associated with the specified box
 		/// This gets all data contained in nodes where the node bounding box intersects the
 		/// specified bounding box
 		std::vector<size_t> get_data_in_box(const Box_t& bbox) const;
+
+		/// Find all data indices that MAY be associated with the specified point
+		/// This returns all data indices contained in leaf nodes that intersect a "sphere" of radius R
+		/// (sphere in the infinity norm, so it's actually a box) centered at the specified point.
+		/// R is chosen such that the sphere encloses the closest leaf to the specified point that is non-empty.
+		std::vector<size_t> get_data_near_point(const Point_t& point) const;
 
 		/// Find existing data in tree
 		/// Returns index if found, (size_t)-1 if not found
@@ -267,7 +274,7 @@ namespace gutil {
 		/// Add data to end of _data. Can be called asynchronously, but does not use the queue.
 		size_t push_back(Data_t&& val);
 
-		/// Asychronous push back. To use this method, we must have:
+		/// Asynchronous push back. To use this method, we must have:
 		/// 	1) every data value inserted in a parallel batch is unique
 		///	 	2) resize() must be called ahead of time so that no _data allocations
 		///              are required
@@ -305,7 +312,7 @@ namespace gutil {
 			replace(std::move(new_val_copy), idx);
 		}
 
-		/// ensure the entire tree is valid. usefull after changing the bounding box.
+		/// ensure the entire tree is valid. useful after changing the bounding box.
 		void rebuild_tree()
 		{
 			std::lock_guard<std::shared_mutex> lock(_tree_mutex);
@@ -352,6 +359,8 @@ namespace gutil {
 		/// Find all data indices in nodes that intersect the specified box
 		void _recursive_data_in_box(const Node_t* node, const Box_t& bbox,
 			std::vector<size_t>& data_indices) const;
+
+		const Node_t* _recursive_closest_data_leaf(const Node_t* node, const Point_t& point, T& dist2) const;
 
 		/// Expand root bounding box to contain new region
 		void _recursive_expand_bbox(const Box_t& new_bbox);
@@ -417,6 +426,29 @@ namespace gutil {
 
 		//return data indices found (sorted, no duplicates, all valid)
 		return data_indices;
+	}
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	std::vector<size_t> BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::get_data_near_point(
+		const Point_t& point) const
+	{
+		//set maximal distance
+		T dist2{0};
+		for (int i=0; i<N_CHILDREN; i++) {
+			T dist2vtx = squaredNorm(_root->bbox.voxelvertex(i) - point);
+			if (dist2vtx > dist2) {dist2 = dist2vtx;}
+		}
+
+		//find closets leaf with data
+		const Node_t* leaf = _recursive_closest_data_leaf(_root, point, dist2);
+
+		//construct box that contains the found leaf
+		Point_t H = leaf->bbox.voxelvertex(0) - point;
+		for (int i=1; i<N_CHILDREN; i++) {
+			H = elmax(H, leaf->bbox.voxelvertex(i) - point);
+		}
+
+		return get_data_in_box(Box_t{point-H, point+H});
 	}
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
@@ -800,6 +832,54 @@ namespace gutil {
 		//but all will be valid data
 	}
 
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	const OctreeParallelNode<DIM,N_DATA,T>* BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_closest_data_leaf(
+		const OctreeParallelNode<DIM,N_DATA,T>* node,
+		const Point<DIM,T>& point,
+		T& dist2) const
+	{
+		assert(node);
+
+		//engage shared lock on the way down
+		std::shared_lock<std::shared_mutex> read_lock(node->mutex);
+
+		if (!isLeaf(node))
+		{
+			//find closest child
+			int c_idx=0;
+			T dist2child = distance_squared(node->children[0]->bbox, point);
+			for (int c=1; c<N_CHILDREN; c++) {
+				T temp_dist2child = distance_squared(node->children[c]->bbox, point);
+				if (temp_dist2child < dist2child) {
+					dist2child = temp_dist2child;
+					c_idx = c;
+				}
+			}
+
+			//if the closest child is further than dist2, don't recurse
+			if (dist2 < dist2child) {return nullptr;}
+
+			//recurse into closest child
+			return _recursive_closest_data_leaf(node->children[c_idx], point, dist2);
+		}
+		else
+		{
+			//exit if we have no data
+			if (node->cursor==0) {return nullptr;}
+			assert(node->data_idx);
+
+			//check if we are the closest leaf with data
+			T dist2leaf = distance_squared(node->bbox, point);
+			if (dist2leaf < dist2) {
+				dist2 = dist2leaf;
+				return node;
+			}
+
+			//we were not the closest leaf
+			return nullptr;
+		}
+	}
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
 	template<bool SEARCH_ALL>

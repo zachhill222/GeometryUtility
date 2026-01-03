@@ -14,9 +14,7 @@
 	#define GUTIL_MAX_GJK_ITERATIONS 16
 #endif
 
-namespace gutil{
-
-
+namespace gutil {
 //SA and SB are two classes that represent convex shapes with a methods:
 //	Point support(const Point& direction)
 //	Point center()

@@ -19,6 +19,7 @@ namespace gutil {
 
 	public:
 		static constexpr int dim = DIM;
+		static constexpr int n_vertices = std::pow(2,DIM);
 		using scalar_type = T;
 		using Point_t = Point<DIM,T>;
 
@@ -223,19 +224,19 @@ namespace gutil {
 	template <int DIM, typename T>
 	constexpr T distance_squared(const Box<DIM,T> &box, const Point<DIM,T> &point) {
 		if (box.contains(point)) {
-			return T(0);
+			return T{0};
 		}
 
 		// Compute distance to closest point on box surface
 		T dist_sq = 0;
-		for (int i = 0; i < DIM; i++) {
+		for (int i=0; i<DIM; i++) {
 			if (point[i] < box.low()[i]) {
 				T diff = box.low()[i] - point[i];
 				dist_sq += diff * diff;
 			} else if (point[i] > box.high()[i]) {
 				T diff = point[i] - box.high()[i];
 				dist_sq += diff * diff;
-			}
+			} //no contribution in this axis if the point is in the box interval
 		}
 		return dist_sq;
 	}

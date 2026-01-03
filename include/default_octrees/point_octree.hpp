@@ -4,14 +4,9 @@
 #include "geometry/box.hpp"
 #include "octree/octree_parallel.hpp"
 
-#ifndef GUTIL_POINT_OCTREE_BUFFER_CAPACITY
-	#define GUTIL_POINT_OCTREE_BUFFER_CAPACITY 2048
-#endif
-
-#ifndef GUTIL_POINT_OCTREE_BUFFER_USE_STACK
-	#define GUTIL_POINT_OCTREE_BUFFER_USE_STACK true
-#endif
-
+#include <algorithm>
+#include <array>
+#include <utility>
 
 namespace gutil {
 	///Octree for points in space.
@@ -37,7 +32,75 @@ namespace gutil {
 		constexpr PointOctree() noexcept : BaseClass() {}
 		constexpr PointOctree(const Box_t &bbox) noexcept : BaseClass(bbox) {}
 
+		//override find closest data
+		size_t closest_point_idx(const Point<dim,T>& point) const {
+			assert(this->size()>0);
+			size_t idx=0;
+			T dist2 = squaredNorm(this->_data[0]-point);
+			_recursive_find_closest_point(this->_root, point, idx, dist2);
+			return idx;
+		}
+
+		//find with a tolerance.
+		size_t find_tol(const Point<dim,T>& point, const T tol) const {
+			const Point<dim,T> H(tol);
+			const Box<dim,T> box(point-H, point+H);
+			std::vector<size_t> candidates = this->get_data_in_box(box);
+			for (size_t idx : candidates) {
+				if (squaredNorm(this->_data[idx] - point) <= tol*tol) {
+					return idx;
+				}
+			}
+
+			return (size_t) -1;
+		}
+
 	private:
 		constexpr bool isValid(const Box_t& box, const Data_t& data) const override {return box.contains(data);}
+
+		void _recursive_find_closest_point(const typename BaseClass::Node_t* node, const Point<dim,T>& point, size_t& idx, T& dist2) const;
 	};
+
+
+	template<int dim, typename T, int n_data>
+	void PointOctree<dim,T,n_data>::_recursive_find_closest_point(
+		const typename PointOctree<dim,T,n_data>::BaseClass::Node_t* node,
+		const Point<dim,T>& point,
+		size_t& idx,
+		T& dist2) const
+	{
+		assert(node);
+
+		//engage shared lock on the way down
+		std::shared_lock<std::shared_mutex> read_lock(node->mutex);
+
+		if (!isLeaf(node))
+		{
+			//sort children to recurse into closest first
+			std::array<std::pair<T,int>, this->N_CHILDREN> children_dist_pair;
+			for (int c=0; c<this->N_CHILDREN; c++) {
+				children_dist_pair[c] = {distance_squared(node->children[c]->bbox, point), c};
+			}
+			std::sort(children_dist_pair.begin(), children_dist_pair.end()); //sorts lexigraphically, distance is first
+
+			//find closest child
+			for (const auto& [dist2child, c] : children_dist_pair) {
+				if (dist2child < dist2) {
+					_recursive_find_closest_point(node->children[c], point, idx, dist2);
+				}
+			}
+		}
+		else
+		{
+			//check if we are the closest leaf with data
+			for (int i=0; i<node->cursor; i++) {
+				const Point<dim,T>& data_point = this->_data[node->data_idx[i]];
+				T temp_dist2 = squaredNorm(data_point - point);
+				if (temp_dist2 < dist2) {
+					dist2 = temp_dist2;
+					idx = node->data_idx[i];
+				}
+			}
+		}
+	}
 }

@@ -11,7 +11,7 @@
 namespace gutil
 {
 	///////////////////////////////////////////////////////////
-	/// Utility math operations
+	/// Utility scalar operations
 	///////////////////////////////////////////////////////////
 	template<typename T>
 	inline constexpr T abs(const T& val) noexcept {return val > T{0} ? val : -val;}
@@ -28,6 +28,47 @@ namespace gutil
 	template<typename T>
 	inline constexpr T max(const T& a, const T& b) noexcept {return a>b ? a : b;}
 
+	//////////////////////////////////////////////////////////
+	/// Pre define any special operations that are constexpr and used in the class
+	//////////////////////////////////////////////////////////
+	template<int DIM, typename T> requires (DIM>0)
+	class Point;
+
+	template<int DIM, typename T> requires (DIM>0)
+	inline constexpr T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept
+	{
+		if constexpr (DIM==1) {
+			return left[0]*right[0];
+		}
+		else if constexpr (DIM==2) {
+			return left[0]*right[0] + left[1]*right[1];
+		}
+		else if constexpr (DIM==3) {
+			return left[0]*right[0] + left[1]*right[1] + left[2]*right[2];
+		}
+		else if constexpr (DIM==4) {
+			return left[0]*right[0] + left[1]*right[1] + left[2]*right[2] + left[3]*right[3];
+		}
+		else {
+			T result{left[0]*right[0]};
+			for (int i=1; i<DIM; i++) {result += left[i]*right[i];}
+			return result;
+		}
+	}
+
+	template<typename T>
+	inline constexpr Point<3,T> cross(const Point<3,T>& left, const Point<3,T>& right) noexcept
+	{
+		//*this x other
+		Point<3,T> result{};
+		result[0] = left[1]*right[2] - left[2]*right[1];
+		result[1] = left[2]*right[0] - left[0]*right[2];
+		result[2] = left[0]*right[1] - left[1]*right[0];
+		return result;
+	}
+
+
+	
 
 	//////////////////////////////////////////////////////////
 	/// A class for cartesian points in space
@@ -62,6 +103,9 @@ namespace gutil
 			for (auto it=init_list.begin(); it!=init_list.end() and i<DIM; ++it, ++i) {
 				_data[i] = static_cast<T>(*it);
 			}
+
+			//if the initializer list was too small, zero out the remaining indices
+			for (;i<DIM; ++i) {_data[i] = T{0};}
 		}
 
 		//initialize via Point v(1,2,3)
@@ -174,9 +218,7 @@ namespace gutil
 
 		constexpr T squaredNorm() const noexcept
 		{
-			T result{_data[0]*_data[0]};
-			for (int i=1; i<DIM; i++) {result += _data[i]*_data[i];}
-			return result;
+			return gutil::dot(*this,*this);
 		}
 
 		//accumulators
@@ -211,21 +253,14 @@ namespace gutil
 		}
 
 		//standard vector operations
-		constexpr T dot(const Point& other) const noexcept
+		inline constexpr T dot(const Point& other) const noexcept
 		{
-			T result{_data[0]*other._data[0]};
-			for (int i=1; i<DIM; i++) {result += _data[i]*other._data[i];}
-			return result;
+			return gutil::dot(*this, other);
 		}
 
-		constexpr Point<3,T> cross(const Point& other) const noexcept requires (DIM==3)
+		inline constexpr Point<3,T> cross(const Point& other) const noexcept requires (DIM==3)
 		{
-			//*this x other
-			Point<3,T> result{};
-			result[0] = _data[1]*other._data[2] - _data[2]*other._data[1];
-			result[1] = _data[2]*other._data[0] - _data[0]*other._data[2];
-			result[2] = _data[0]*other._data[1] - _data[1]*other._data[0];
-			return result;
+			return cross(*this, other);
 		}
 
 	protected:
@@ -342,13 +377,7 @@ namespace gutil
 	//////////////////////// TRADITIONAL VECTOR OPERATIONS ////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
 	template<int DIM, typename T>
-	inline constexpr T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {return left.dot(right);}
-
-	template<typename T>
-	inline constexpr Point<3,T> cross(const Point<3,T>& left, const Point<3,T>& right) noexcept {return left.cross(right);}
-
-	template<int DIM, typename T>
-	inline constexpr T squaredNorm(const Point<DIM,T>& point) noexcept {return point.squaredNorm();}
+	inline constexpr T squaredNorm(const Point<DIM,T>& point) noexcept {return gutil::dot(point,point);}
 
 	template<int DIM, typename T>
 	inline T norm2(const Point<DIM,T>& point) noexcept {
@@ -450,7 +479,7 @@ namespace gutil
 
 	/// Convenient way to call the sorted sum.
 	template<int DIM, typename T, typename U, typename W>
-	constexpr Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,W>> points) noexcept {
+	inline constexpr Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,W>> points) noexcept {
 	    return sorted_sum<DIM,T,U,W>(std::vector<Point<DIM,W>>(points.begin(), points.end()));
 	}
 
