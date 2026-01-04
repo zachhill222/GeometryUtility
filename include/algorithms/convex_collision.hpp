@@ -347,8 +347,6 @@ bool doSimplex(std::vector<Point<DIM,T>>& simplex, Point<DIM,T>& direction)
 {
 	//simplex must contain between 2 and 4 points initially
 	//simplex and direction will both be updated for the next iteration
-
-	bool result = false;
 	
 	//GET NEW SEARCH DIRECTION
 	switch (simplex.size()){

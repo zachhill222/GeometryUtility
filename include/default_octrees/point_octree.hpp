@@ -10,13 +10,13 @@
 
 namespace gutil {
 	///Octree for points in space.
-	template<int dim=3, typename T=double, int n_data=32>
+	template<int dim=3, typename T=double, int n_data=32, typename U=T>
 	class PointOctree : public BasicParallelOctree<
 									Point<dim,T>,
 									true,
 									dim,
 									n_data,
-									T>
+									U>
 	{
 	public:
 		using BaseClass = BasicParallelOctree<
@@ -24,7 +24,7 @@ namespace gutil {
 									true,
 									dim,
 									n_data,
-									T>;
+									U>;
 		using typename BaseClass::Data_t;
 		using typename BaseClass::Box_t;
 
@@ -33,11 +33,16 @@ namespace gutil {
 		constexpr PointOctree(const Box_t &bbox) noexcept : BaseClass(bbox) {}
 
 		//override find closest data
-		size_t closest_point_idx(const Point<dim,T>& point) const {
+		template<typename W>
+		size_t closest_point_idx(const Point<dim,W>& point) const {
 			assert(this->size()>0);
 			size_t idx=0;
-			T dist2 = squaredNorm(this->_data[0]-point);
-			_recursive_find_closest_point(this->_root, point, idx, dist2);
+
+			Point<dim,U> octree_point = static_cast<Point<dim,U>>(point);
+			Point<dim,U> octree_data  = static_cast<Point<dim,U>>(this->_data[0]);
+			U dist2 = squaredNorm(octree_data-octree_point);
+
+			_recursive_find_closest_point(this->_root, octree_point, idx, dist2);
 			return idx;
 		}
 
@@ -56,18 +61,18 @@ namespace gutil {
 		}
 
 	private:
-		constexpr bool isValid(const Box_t& box, const Data_t& data) const override {return box.contains(data);}
+		constexpr bool isValid(const Box_t& box, const Data_t& data) const override {return box.contains(static_cast<Point<dim,U>>(data));}
 
-		void _recursive_find_closest_point(const typename BaseClass::Node_t* node, const Point<dim,T>& point, size_t& idx, T& dist2) const;
+		void _recursive_find_closest_point(const typename BaseClass::Node_t* node, const Point<dim,U>& point, size_t& idx, U& dist2) const;
 	};
 
 
-	template<int dim, typename T, int n_data>
-	void PointOctree<dim,T,n_data>::_recursive_find_closest_point(
-		const typename PointOctree<dim,T,n_data>::BaseClass::Node_t* node,
-		const Point<dim,T>& point,
+	template<int dim, typename T, int n_data, typename U>
+	void PointOctree<dim,T,n_data,U>::_recursive_find_closest_point(
+		const typename PointOctree<dim,T,n_data,U>::BaseClass::Node_t* node,
+		const Point<dim,U>& point,
 		size_t& idx,
-		T& dist2) const
+		U& dist2) const
 	{
 		assert(node);
 
@@ -94,8 +99,8 @@ namespace gutil {
 		{
 			//check if we are the closest leaf with data
 			for (int i=0; i<node->cursor; i++) {
-				const Point<dim,T>& data_point = this->_data[node->data_idx[i]];
-				T temp_dist2 = squaredNorm(data_point - point);
+				const Point<dim,U> data_point = static_cast<Point<dim,U>>(this->_data[node->data_idx[i]]);
+				U temp_dist2 = squaredNorm(data_point - point);
 				if (temp_dist2 < dist2) {
 					dist2 = temp_dist2;
 					idx = node->data_idx[i];

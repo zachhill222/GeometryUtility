@@ -242,6 +242,7 @@ namespace gutil {
 		// Interact with the bounding box
 		////////////////////////////////////////////////////////////
 		inline const Box_t& bbox() const {return _root->bbox;}
+		inline Box_t bbox_tight() const;
 		inline bool bbox_has_changed() {return _bbox_has_changed;}
 
 		void resize_to_fit_data(const Data_t& val) {
@@ -378,6 +379,8 @@ namespace gutil {
 		/// Convenience and debug methods
 		/////////////////////////////////////////////////
 		void _recursive_node_properties(const Node_t* node, Stats& stats) const;
+
+		void _recursive_compute_data_leaf_bbox(const Node_t* node, Box_t& bbox) const;
 	};
 
 
@@ -950,6 +953,39 @@ namespace gutil {
 			}
 		}
 
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_compute_data_leaf_bbox(
+		const OctreeParallelNode<DIM,N_DATA,T>* node,
+		Box_t& bbox) const
+	{
+		assert(node);
+
+		//engage shared lock on the way down
+		std::shared_lock<std::shared_mutex> read_lock(node->mutex);
+
+		if (!isLeaf(node))
+		{
+			//recurse into any child that extends past the current bbox
+			for (int c=0; c<N_CHILDREN; c++) {
+				assert(node->children[c]);
+				if (!bbox.contains(node->children[c]->bbox)) {
+					_recursive_compute_data_leaf_bbox(node->children[c], bbox);
+				}
+			}
+		}
+		else
+		{
+			//exit if we have no data
+			if (node->cursor==0) {return;}
+			assert(node->data_idx);
+
+			//check if we are the closest leaf with data
+			bbox = combine(bbox,node->bbox);
+		}
+	}
+
+
+
 	///////////////////////////////////////////////////////////////////////////
 	//////////////////////// OTHER PRIVATE METHODS ////////////////////////////
 	///////////////////////////////////////////////////////////////////////////
@@ -995,5 +1031,23 @@ namespace gutil {
 		}
 
 		return true;
+	}
+
+
+
+
+
+
+
+	////////////////////////////////////////////////////////////////////////////
+	/////////////////////// OTHER UTILITY METHODS //////////////////////////////
+	////////////////////////////////////////////////////////////////////////////
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	inline Box<DIM,T> BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::bbox_tight() const
+	{
+		Point_t center = _root->bbox.center();
+		Box_t _bbox(center,center);
+		_recursive_compute_data_leaf_bbox(_root, _bbox);
+		return _bbox;
 	}
 }

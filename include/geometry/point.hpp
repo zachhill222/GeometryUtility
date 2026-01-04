@@ -333,7 +333,7 @@ namespace gutil
 
 	template<int DIM, typename T>
 	constexpr Point<DIM,T> operator*(const Point<DIM,T>& left, const Point<DIM,T>& right) {
-		Point<DIM,T> result{right};
+		Point<DIM,T> result{left};
 		return result*=right;
 	}
 

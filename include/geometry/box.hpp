@@ -33,7 +33,7 @@ namespace gutil {
 		// Constructor from two points (automatically orders them)
 		constexpr Box(const Point_t &vertex1, const Point_t &vertex2) noexcept : 
 			_low(elmin(vertex1, vertex2)), _high(elmax(vertex1, vertex2)) {
-			assert(_low < _high);
+			assert(_low <= _high);
 		}
 
 		//use default copy and move constructors and assignment
@@ -182,24 +182,6 @@ namespace gutil {
 			return (*this) * (T(1) / static_cast<T>(scale));
 		}
 
-		/// Enlarge this box to contain the other box
-		constexpr Box& combine(const Box<DIM,T>& other) noexcept {
-			_low  = elmin(_low, other._low);
-			_high = elmax(_high, other._high);
-			return *this;
-		}
-
-		/// Return union of two boxes (same as Box& combine(), but does not alter this box)
-		constexpr Box combine(const Box<DIM,T>& other) const noexcept {
-			return Box(elmin(_low, other._low), elmax(_high, other._high));
-		}
-
-		/// Return intersection of two boxes (undefined if boxes don't intersect)
-		constexpr Box intersection(const Box<DIM,T>& other) const {
-			assert(intersects(other));
-			return Box(elmax(_low, other._low), elmin(_high, other._high));
-		}
-
 		////////////////////////////////////////////////////////////////
 		// Comparison
 		////////////////////////////////////////////////////////////////
@@ -216,6 +198,19 @@ namespace gutil {
 	////////////////////////////////////////////////////////////////
 	// Free functions
 	////////////////////////////////////////////////////////////////
+	template <int DIM, typename T>
+	Box<DIM,T> combine(const Box<DIM,T>& A, const Box<DIM,T>& B) {
+		return {elmin(A.low(),B.low()), elmax(B.low(),B.high())};
+	}
+
+	/// Return intersection of two boxes (undefined if boxes don't intersect)
+	template <int DIM, typename T>
+	Box<DIM,T> intersection(const Box<DIM,T>& A, const Box<DIM,T>& B) {
+		assert(A.intersects(B));
+		return Box(elmax(A.low(), B.low()), elmin(A.high(), B.high()));
+	}
+
+
 	template <int DIM, typename T, typename U>
 	constexpr Box<DIM,T> operator*(const U &scale, const Box<DIM,T> &box) {
 		return box * scale;
