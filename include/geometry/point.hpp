@@ -10,6 +10,24 @@
 
 namespace gutil
 {
+	template<int DIM, typename T> requires (DIM>0)
+	class Point;
+
+
+
+	///////////////////////////////////////////////////////////
+	/// Concept to ensure that a type is some form of point
+	/// defined in the class below
+	///////////////////////////////////////////////////////////
+	template<typename T>
+	concept pointlike = requires
+	{
+		typename std::integral_constant<int, T::dim>;
+		typename T::scalar_type;
+	} and std::same_as<T, Point<T::dim, typename T::scalar_type>>;
+
+
+
 	///////////////////////////////////////////////////////////
 	/// Utility scalar operations
 	///////////////////////////////////////////////////////////
@@ -31,9 +49,6 @@ namespace gutil
 	//////////////////////////////////////////////////////////
 	/// Pre define any special operations that are constexpr and used in the class
 	//////////////////////////////////////////////////////////
-	template<int DIM, typename T> requires (DIM>0)
-	class Point;
-
 	template<int DIM, typename T> requires (DIM>0)
 	inline constexpr T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept
 	{
@@ -266,6 +281,14 @@ namespace gutil
 	protected:
 		T _data[DIM];
 	};
+
+	///////////////////////////////////////////////////////////////////
+	/// Ensure that the concept 'pointlike' is valid
+	///////////////////////////////////////////////////////////////////
+	static_assert(pointlike<Point<3,float>>);
+	static_assert(pointlike<Point<2,float>>);
+	static_assert(pointlike<Point<3,double>>);
+	static_assert(pointlike<Point<2,double>>);
 
 
 	///////////////////////////////////////////////////////////////////

@@ -75,8 +75,8 @@ namespace gutil {
 			size_t n_indices_capacity=0;
 			size_t n_leafs=0;
 			size_t n_nodes=0;
-			size_t memory_reserved_bytes=0;
-			size_t memory_used_bytes=0;
+			double memory_reserved_bytes=0;
+			double memory_used_bytes=0;
 			int max_depth=0;
 		};
 
