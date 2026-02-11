@@ -166,32 +166,139 @@ namespace gutil
 		//asymetric/in-place math operations
 		constexpr Point& operator+=(const Point& other) noexcept
 		{
-			for (int i=0; i<DIM; i++) {_data[i] += other._data[i];}
+			if constexpr (DIM==1) {
+				_data[0] += other._data[0];
+			}
+			else if constexpr (DIM==2) {
+				_data[0] += other._data[0];
+				_data[1] += other._data[1];
+			}
+			else if constexpr (DIM==3) {
+				_data[0] += other._data[0];
+				_data[1] += other._data[1];
+				_data[2] += other._data[2];
+			}
+			else if constexpr (DIM==4) {
+				_data[0] += other._data[0];
+				_data[1] += other._data[1];
+				_data[2] += other._data[2];
+				_data[3] += other._data[3];
+			}
+			else {
+				for (int i=0; i<DIM; i++) {_data[i] += other._data[i];}
+			}
+
 			return *this;
 		}
 
 		constexpr Point& operator-=(const Point& other) noexcept
 		{
-			for (int i=0; i<DIM; i++) {_data[i] -= other._data[i];}
+			if constexpr (DIM==1) {
+				_data[0] -= other._data[0];
+			}
+			else if constexpr (DIM==2) {
+				_data[0] -= other._data[0];
+				_data[1] -= other._data[1];
+			}
+			else if constexpr (DIM==3) {
+				_data[0] -= other._data[0];
+				_data[1] -= other._data[1];
+				_data[2] -= other._data[2];
+			}
+			else if constexpr (DIM==4) {
+				_data[0] -= other._data[0];
+				_data[1] -= other._data[1];
+				_data[2] -= other._data[2];
+				_data[3] -= other._data[3];
+			}
+			else {
+				for (int i=0; i<DIM; i++) {_data[i] -= other._data[i];}
+			}
+
 			return *this;
 		}
 
 		constexpr Point& operator*=(const Point& other) noexcept
 		{
-			for (int i=0; i<DIM; i++) {_data[i] *= other._data[i];}
-			return *this;
-		}
+			if constexpr (DIM==1) {
+				_data[0] *= other._data[0];
+			}
+			else if constexpr (DIM==2) {
+				_data[0] *= other._data[0];
+				_data[1] *= other._data[1];
+			}
+			else if constexpr (DIM==3) {
+				_data[0] *= other._data[0];
+				_data[1] *= other._data[1];
+				_data[2] *= other._data[2];
+			}
+			else if constexpr (DIM==4) {
+				_data[0] *= other._data[0];
+				_data[1] *= other._data[1];
+				_data[2] *= other._data[2];
+				_data[3] *= other._data[3];
+			}
+			else {
+				for (int i=0; i<DIM; i++) {_data[i] *= other._data[i];}
+			}
 
-		template<typename U> requires std::is_nothrow_convertible<U,T>::value
-		constexpr Point& operator*=(const U& other) noexcept
-		{
-			for (int i=0; i<DIM; i++) {_data[i] *= static_cast<T>(other);}
 			return *this;
 		}
 
 		constexpr Point& operator/=(const Point& other) noexcept
 		{
-			for (int i=0; i<DIM; i++) {_data[i] /= other._data[i];}
+			if constexpr (DIM==1) {
+				_data[0] /= other._data[0];
+			}
+			else if constexpr (DIM==2) {
+				_data[0] /= other._data[0];
+				_data[1] /= other._data[1];
+			}
+			else if constexpr (DIM==3) {
+				_data[0] /= other._data[0];
+				_data[1] /= other._data[1];
+				_data[2] /= other._data[2];
+			}
+			else if constexpr (DIM==4) {
+				_data[0] /= other._data[0];
+				_data[1] /= other._data[1];
+				_data[2] /= other._data[2];
+				_data[3] /= other._data[3];
+			}
+			else {
+				for (int i=0; i<DIM; i++) {_data[i] /= other._data[i];}
+			}
+
+			return *this;
+		}
+
+		template<typename U> requires std::is_nothrow_convertible<U,T>::value
+		constexpr Point& operator*=(const U& scalar) noexcept
+		{
+			const T s = static_cast<T>(scalar);
+
+			if constexpr (DIM==1) {
+				_data[0] *= s;
+			}
+			else if constexpr (DIM==2) {
+				_data[0] *= s;
+				_data[1] *= s;
+			}
+			else if constexpr (DIM==3) {
+				_data[0] *= s;
+				_data[1] *= s;
+				_data[2] *= s;
+			}
+			else if constexpr (DIM==4) {
+				_data[0] *= s;
+				_data[1] *= s;
+				_data[2] *= s;
+				_data[3] *= s;
+			}
+			else {
+				for (int i=0; i<DIM; i++) {_data[i] *= s;}
+			}
+
 			return *this;
 		}
 
@@ -203,13 +310,59 @@ namespace gutil
 
 		constexpr Point& operator%=(const Point& other) noexcept requires(std::integral<T>)
 		{
-			for (int i=0; i<DIM; i++) {_data[i] %= other._data[i];}
+			if constexpr (DIM==1) {
+				_data[0] %= other._data[0];
+			}
+			else if constexpr (DIM==2) {
+				_data[0] %= other._data[0];
+				_data[1] %= other._data[1];
+			}
+			else if constexpr (DIM==3) {
+				_data[0] %= other._data[0];
+				_data[1] %= other._data[1];
+				_data[2] %= other._data[2];
+			}
+			else if constexpr (DIM==4) {
+				_data[0] %= other._data[0];
+				_data[1] %= other._data[1];
+				_data[2] %= other._data[2];
+				_data[3] %= other._data[3];
+			}
+			else {
+				for (int i=0; i<DIM; i++) {_data[i] %= other._data[i];}
+			}
+
+			return *this;
 		}
 
 		constexpr Point operator-() const noexcept
 		{
-			Point result{*this};
-			for (int i=0; i<DIM; i++) {result._data[i] = -result._data[i];}
+			Point result;
+			
+			if constexpr (DIM==1) {
+				result._data[0] = -_data[0];
+			}
+			else if constexpr (DIM==2) {
+				result._data[0] = -_data[0];
+				result._data[1] = -_data[1];
+			}
+			else if constexpr (DIM==3) {
+				result._data[0] = -_data[0];
+				result._data[1] = -_data[1];
+				result._data[2] = -_data[2];
+			}
+			else if constexpr (DIM==4) {
+				result._data[0] = -_data[0];
+				result._data[1] = -_data[1];
+				result._data[2] = -_data[2];
+				result._data[3] = -_data[3];
+			}
+			else {
+				for (int i=0; i<DIM; i++) {result._data[i] = -_data[i];}
+			}
+
+
+
 			return result;
 		}
 
@@ -257,6 +410,8 @@ namespace gutil
 			for (int i=1; i<DIM; i++) {
 				result = _data[i] > result ? _data[i] : result;
 			}
+
+			return result;
 		}
 
 		constexpr T min() const noexcept
@@ -265,6 +420,8 @@ namespace gutil
 			for (int i=1; i<DIM; i++) {
 				result = _data[i] < result ? _data[i] : result;
 			}
+
+			return result;
 		}
 
 		//standard vector operations
