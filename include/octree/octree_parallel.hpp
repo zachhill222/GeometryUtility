@@ -470,7 +470,7 @@ namespace gutil {
 		size_t idx = (size_t) -1;
 		idx = _recursive_find_index<false>(start_node, val); //single threaded, no need to lock
 		if (idx!=(size_t) -1) {return idx;}
-
+		
 		//data must be inserted
 		idx = _next_data_idx.fetch_add(1, std::memory_order_acq_rel);
 		assert(idx == _data.size());
