@@ -62,7 +62,7 @@ namespace gutil {
 
 	private:
 		constexpr bool isValid(const Box_t& box, const Data_t& data) const override {return box.contains(static_cast<Point<dim,U>>(data));}
-
+		constexpr T dist2data(const Point<dim,T>& point, const Data_t& data) const override {return squaredNorm(point-data);}
 		void _recursive_find_closest_point(const typename BaseClass::Node_t* node, const Point<dim,U>& point, size_t& idx, U& dist2) const;
 	};
 
