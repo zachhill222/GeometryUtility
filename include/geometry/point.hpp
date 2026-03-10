@@ -596,10 +596,42 @@ namespace gutil
 		return result;
 	}
 
+	//note CONTAINTER_T should be a std::vector or std::array
+	template<typename CONTAINER_T>
+	constexpr auto elmax(const CONTAINER_T& container) {
+		using P = typename CONTAINER_T::value_type;
+		auto n = container.size();
+		using Index_t = decltype(n);
+		assert(container.size()>Index_t{0});
+
+		P result = container[0];
+		for (Index_t i=1; i<n; ++i) {
+			result = elmax(result, container[i]);
+		}
+
+		return result;
+	}
+
 	template<int DIM, typename T>
 	constexpr Point<DIM,T> elmin(const Point<DIM,T>& left, const Point<DIM,T>& right) {
 		Point<DIM,T> result{};
 		for (int i=0; i<DIM; i++) {result[i] = min(left[i], right[i]);}
+		return result;
+	}
+
+	//note CONTAINTER_T should be a std::vector or std::array
+	template<typename CONTAINER_T>
+	constexpr auto elmin(const CONTAINER_T& container) {
+		using P = typename CONTAINER_T::value_type;
+		auto n = container.size();
+		using Index_t = decltype(n);
+		assert(container.size()>Index_t{0});
+
+		P result = container[0];
+		for (Index_t i=1; i<n; ++i) {
+			result = elmin(result, container[i]);
+		}
+
 		return result;
 	}
 

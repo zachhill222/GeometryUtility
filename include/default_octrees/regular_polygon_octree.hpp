@@ -22,7 +22,7 @@ namespace gutil {
 	private:
 		constexpr bool isValid(const Box_t& box, const Data_t& data) const override {
 			return data.intersects(box);}
-		constexpr T dist2data(const Point_t& point, const Data_t& data) const override {
+		constexpr T dist2data(const Point<2,T>& point, const Data_t& data) const override {
 			//distance to closest vertex as a proxy to the closest point
 			T dist = normSquared(point-data[0]);
 			for (int i=1; i<Data_t::n_vertices; ++i) {
