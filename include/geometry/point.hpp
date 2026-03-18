@@ -689,10 +689,12 @@ namespace gutil
 		return result;
 	}
 
-	/// Convenient way to call the sorted sum.
+	/// Convenient ways to call the sorted sum.
 	template<int DIM, typename T, typename U, typename W>
 	inline constexpr Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,W>> points) noexcept {
 	    return sorted_sum<DIM,T,U,W>(std::vector<Point<DIM,W>>(points.begin(), points.end()));
 	}
+
+	
 
 }
