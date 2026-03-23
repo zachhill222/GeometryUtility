@@ -13,6 +13,7 @@
 #include "math/float_manipulation.hpp"
 #include "math/matrix.hpp"
 #include "math/quaternion.hpp"
+#include "math/linear_set.hpp"
 
 #include "algorithms/convex_collision.hpp"
 
