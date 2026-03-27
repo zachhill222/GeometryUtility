@@ -131,7 +131,7 @@ namespace gutil
 		constexpr Point(const T& val) : _data{} {std::fill(_data, _data+DIM, val);}
 
 		//destructor
-		~Point() {}
+		constexpr ~Point() noexcept {}
 
 		//copy and move assignment
 		constexpr Point& operator=(const Point& other) noexcept
