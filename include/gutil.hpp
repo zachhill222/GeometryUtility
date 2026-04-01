@@ -19,3 +19,9 @@
 
 #include "default_octrees/point_octree.hpp"
 #include "default_octrees/regular_polygon_octree.hpp"
+
+namespace gutil
+{
+	template<int offset=0>
+	using FixedPoint64 = FixedPoint<int64_t,offset>;
+}
