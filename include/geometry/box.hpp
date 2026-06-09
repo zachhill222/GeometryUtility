@@ -12,16 +12,14 @@
 
 namespace gutil {
 	template<int DIM=3, typename T=double>
-	class Box {
-	private:
+	struct Box {
 		Point<DIM,T> _low;
 		Point<DIM,T> _high;
 
-	public:
 		static constexpr int dim = DIM;
 		static constexpr int n_vertices = std::pow(2,DIM);
 		using scalar_type = T;
-		using Point_t = Point<DIM,T>;
+		using point_type  = Point<DIM,T>;
 
 		////////////////////////////////////////////////////////////////
 		// Constructors

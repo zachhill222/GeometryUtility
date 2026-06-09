@@ -8,12 +8,11 @@
 #include <iostream>
 #include <cassert>
 
+
 namespace gutil
 {
 	template<int DIM, typename T> requires (DIM>0)
-	class Point;
-
-
+	struct Point;
 
 	///////////////////////////////////////////////////////////
 	/// Concept to ensure that a type is some form of point
@@ -23,8 +22,8 @@ namespace gutil
 	concept pointlike = requires
 	{
 		typename std::integral_constant<int, T::dim>;
-		typename T::scalar_type;
-	} and std::same_as<T, Point<T::dim, typename T::scalar_type>>;
+		typename T::value_type;
+	} and std::same_as<T, Point<T::dim, typename T::value_type>>;
 
 
 
@@ -98,12 +97,11 @@ namespace gutil
 	/// floating point rounding is important and unacceptable.
 	//////////////////////////////////////////////////////////
 	template<int DIM, typename T=double> requires (DIM>0)
-	class Point
+	struct Point
 	{
-	public:
 		//track type information
 		static constexpr int dim = DIM;
-		using scalar_type = T;
+		using value_type = T;
 
 		//essential constructors
 		constexpr Point() noexcept : _data{} {}
@@ -131,7 +129,7 @@ namespace gutil
 		constexpr Point(const T& val) : _data{} {std::fill(_data, _data+DIM, val);}
 
 		//destructor
-		~Point() {}
+		constexpr ~Point() noexcept {}
 
 		//copy and move assignment
 		constexpr Point& operator=(const Point& other) noexcept
@@ -147,8 +145,11 @@ namespace gutil
 		}
 
 		//element access
-		inline constexpr const T& operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
+		inline constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
 		inline constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
+
+		//standard container access
+		static constexpr size_t size() {return static_cast<size_t>(DIM);}
 
 		//type conversion
 		template<int OTHER_DIM, typename OTHER_T> requires std::is_nothrow_convertible<T,OTHER_T>::value
@@ -386,7 +387,7 @@ namespace gutil
 
 		constexpr T squaredNorm() const noexcept
 		{
-			return gutil::dot(*this,*this);
+			return dot(*this,*this);
 		}
 
 		//accumulators
@@ -427,7 +428,7 @@ namespace gutil
 		//standard vector operations
 		inline constexpr T dot(const Point& other) const noexcept
 		{
-			return gutil::dot(*this, other);
+			return dot(*this, other);
 		}
 
 		inline constexpr Point<3,T> cross(const Point& other) const noexcept requires (DIM==3)
@@ -435,7 +436,6 @@ namespace gutil
 			return cross(*this, other);
 		}
 
-	protected:
 		T _data[DIM];
 	};
 
@@ -557,7 +557,7 @@ namespace gutil
 	//////////////////////// TRADITIONAL VECTOR OPERATIONS ////////////////////////
 	///////////////////////////////////////////////////////////////////////////////
 	template<int DIM, typename T>
-	inline constexpr T squaredNorm(const Point<DIM,T>& point) noexcept {return gutil::dot(point,point);}
+	inline constexpr T squaredNorm(const Point<DIM,T>& point) noexcept {return dot(point,point);}
 
 	template<int DIM, typename T>
 	inline T norm2(const Point<DIM,T>& point) noexcept {
@@ -596,10 +596,42 @@ namespace gutil
 		return result;
 	}
 
+	//note CONTAINTER_T should be a std::vector or std::array
+	template<typename CONTAINER_T>
+	constexpr auto elmax(const CONTAINER_T& container) {
+		using P = typename CONTAINER_T::value_type;
+		auto n = container.size();
+		using Index_t = decltype(n);
+		assert(container.size()>Index_t{0});
+
+		P result = container[0];
+		for (Index_t i=1; i<n; ++i) {
+			result = elmax(result, container[i]);
+		}
+
+		return result;
+	}
+
 	template<int DIM, typename T>
 	constexpr Point<DIM,T> elmin(const Point<DIM,T>& left, const Point<DIM,T>& right) {
 		Point<DIM,T> result{};
 		for (int i=0; i<DIM; i++) {result[i] = min(left[i], right[i]);}
+		return result;
+	}
+
+	//note CONTAINTER_T should be a std::vector or std::array
+	template<typename CONTAINER_T>
+	constexpr auto elmin(const CONTAINER_T& container) {
+		using P = typename CONTAINER_T::value_type;
+		auto n = container.size();
+		using Index_t = decltype(n);
+		assert(container.size()>Index_t{0});
+
+		P result = container[0];
+		for (Index_t i=1; i<n; ++i) {
+			result = elmin(result, container[i]);
+		}
+
 		return result;
 	}
 
@@ -657,7 +689,7 @@ namespace gutil
 		return result;
 	}
 
-	/// Convenient way to call the sorted sum.
+	/// Convenient ways to call the sorted sum.
 	template<int DIM, typename T, typename U, typename W>
 	inline constexpr Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,W>> points) noexcept {
 	    return sorted_sum<DIM,T,U,W>(std::vector<Point<DIM,W>>(points.begin(), points.end()));
