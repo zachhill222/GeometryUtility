@@ -695,4 +695,6 @@ namespace gutil
 	    return sorted_sum<DIM,T,U,W>(std::vector<Point<DIM,W>>(points.begin(), points.end()));
 	}
 
+	
+
 }

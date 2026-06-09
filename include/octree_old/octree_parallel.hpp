@@ -226,6 +226,18 @@ namespace gutil {
 			return result;
 		}
 
+		/// Find closest data to the specified point
+		size_t find_closest(const Point_t& point) const {
+			std::shared_lock<std::shared_mutex> tree_lock(_tree_mutex);
+			if (empty()) {return (size_t) -1;}
+
+			T bestdist = dist2data(point, _data[0]);
+			size_t idx = 0;
+
+			_recursive_find_closest_data(_root, point, idx, bestdist);
+			return idx;
+		}
+
 		////////////////////////////////////////////////////////////
 		// Iterators
 		////////////////////////////////////////////////////////////
@@ -340,6 +352,9 @@ namespace gutil {
 		/// Determine if data belongs in the given bounding box (must be overridden)
 		virtual constexpr bool isValid(const Box_t &bbox, const Data_t &val) const = 0;
 
+		/// Compute distance (or a proxy such as distance squared) from a point to a Data_t
+		virtual constexpr T dist2data(const Point_t &point, const Data_t &val) const = 0;
+
 		////////////////////////////////////////////////////////////
 		// Recursive helper functions
 		////////////////////////////////////////////////////////////
@@ -362,6 +377,9 @@ namespace gutil {
 			std::vector<size_t>& data_indices) const;
 
 		const Node_t* _recursive_closest_data_leaf(const Node_t* node, const Point_t& point, T& dist2) const;
+
+		void _recursive_find_closest_data(const Node_t* node, const Point_t& point, size_t& idx, T& dist) const;
+
 
 		/// Expand root bounding box to contain new region
 		void _recursive_expand_bbox(const Box_t& new_bbox);
@@ -835,6 +853,48 @@ namespace gutil {
 		//but all will be valid data
 	}
 
+
+	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
+	void BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_find_closest_data(
+		const OctreeParallelNode<DIM,N_DATA,T>* node,
+		const Point<DIM,T>& point,
+		size_t& bestidx,
+		T& bestdist) const
+	{
+		assert(node);
+
+		//engage shared lock on the way down
+		std::shared_lock<std::shared_mutex> read_lock(node->mutex);
+
+		if (!isLeaf(node))
+		{
+			//sort children to recurse into closest first
+			std::array<std::pair<T,int>, this->N_CHILDREN> children_dist_pair;
+			for (int c=0; c<this->N_CHILDREN; c++) {
+				children_dist_pair[c] = {distance_squared(node->children[c]->bbox, point), c};
+			}
+			std::sort(children_dist_pair.begin(), children_dist_pair.end()); //sorts lexigraphically, distance is first
+
+			//find closest child
+			for (const auto& [dist2child, c] : children_dist_pair) {
+				if (dist2child < bestdist) {
+					_recursive_find_closest_data(node->children[c], point, bestidx, bestdist);
+				}
+			}
+		}
+		else
+		{
+			//check if we are the closest leaf with data
+			for (int i=0; i<node->cursor; i++) {
+				const Data_t& VAL = this->_data[node->data_idx[i]];
+				T temp_dist = dist2data(point, VAL);
+				if (temp_dist < bestdist) {
+					bestdist = temp_dist;
+					bestidx  = node->data_idx[i];
+				}
+			}
+		}
+	}
 
 	template<typename DATA_T, bool SINGLE_DATA, int DIM, int N_DATA, typename T>
 	const OctreeParallelNode<DIM,N_DATA,T>* BasicParallelOctree<DATA_T,SINGLE_DATA,DIM,N_DATA,T>::_recursive_closest_data_leaf(
