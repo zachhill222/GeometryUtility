@@ -14,7 +14,7 @@ namespace gutil
 
 
 	//define core components
-	template<typename KEY_T=OctreeDigitKey<3>>
+	template<typename KEY_T=DigitKey<3>>
 	struct OctreeNodeBase
 	{
 		//constants
@@ -57,7 +57,7 @@ namespace gutil
 	{
 		//sanity checks
 		static_assert(std::equality_comparable<STORE_T>, "OctreeNode - STORE_T must be equality comparable");
-		static_assert(SINGLE_DATA || std::integral<STORE_T>, "OctreeNode - STORE_T must be an index/integer type for multiple data");
+		static_assert(SINGLE_DATA_ || std::integral<STORE_T>, "OctreeNode - STORE_T must be an index/integer type for multiple data");
 
 		//convenient aliases
 		using base_type  = OctreeNodeBase<KEY_T>;
@@ -151,17 +151,22 @@ namespace gutil
 
 		//merge two nodes when the data could be duplicated
 		int merge(OctreeNode&& other) {
+			assert(is_valid());
+			assert(other.is_valid());
+
 			while (other.cursor>0 && cursor<MAX_DATA) {
-				--other.cursor; //point to newest data
-				const int flag = insert(std::move(other.values[other.cursor]));
+				--other.cursor; //point to last data
+				const int flag = insert_back(std::move(other.values[other.cursor]));
 				assert(flag!=-1); //should never happen with the while loop limits
 			}
 
-			if (!other.empty()) {return -1;}		//merge was unsuccessful
-
 			if constexpr (KEEP_SORTED) {			//sort if needed
 				std::sort(begin(), end());
+				auto last = std::unique(begin(), end());
+				cursor   -= std::distance(last, end());
 			}
+
+			if (!other.empty()) {return -1;}		//merge was unsuccessful (data still left in other node)
 
 			return 1; 								//merge was successful
 		}
