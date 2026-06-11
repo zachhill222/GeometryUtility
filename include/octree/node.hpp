@@ -31,6 +31,14 @@ namespace gutil
 		//store the key
 		KEY_T key{};
 		
+		//define flags for inserting and merging data
+		enum class InsertResult : int
+		{
+			SUCCESS	  =  1,
+			DUPLICATE =  0,
+			OVERFLOW  = -1
+		};
+
 		//pass comparisons to the key
 		bool constexpr operator==(const OctreeNodeBase other) const {return key == other.key;}
 		bool constexpr operator!=(const OctreeNodeBase other) const {return key != other.key;}
@@ -75,6 +83,7 @@ namespace gutil
 		using base_type::base_type;		//constructors
 		using base_type::key; 			//key type
 		using base_type::N_CHILDREN;	//number of child nodes (constexpr uint64_t)
+		using base_type::InsertResult;	//return flags
 
 		//add homogeneous storage
 		std::array<STORE_T,MAX_DATA> values{};
@@ -103,41 +112,41 @@ namespace gutil
 		}
 
 		//insert data and don't maintain sorting or check containment
-		int insert_back(STORE_T&& val) {
-			if (cursor>=MAX_DATA) {return -1;}					//data could not be added
+		InsertResult insert_back(STORE_T&& val) {
+			if (cursor>=MAX_DATA) {return InsertResult::OVERFLOW;}
 			values[cursor++] = std::move(val);
-			return 1;											//data was added successfully
+			return InsertResult::SUCCESS;
 		}
 
 		//insert data and maintain sorting. checks for containment.
-		int insert_sort(STORE_T&& val) {
-			if (cursor>=MAX_DATA) {return -1;}					//data could not be added
+		InsertResult insert_sort(STORE_T&& val) {
+			if (cursor>=MAX_DATA) {return InsertResult::OVERFLOW;}
 
 			auto it = std::lower_bound(begin(), end(), val);
-			if (it != end() && *it == val) {return 0;}			//data was already there
+			if (it != end() && *it == val) {return InsertResult::DUPLICATE;}
 			
-			std::move_backward(it, end(), end()+1);				//shift the data back to make room for the new data
+			//shift the data back to make room for the new data
+			std::move_backward(it, end(), end()+1);
 			*it = std::move(val);
 			++cursor;
 
-			return 1;											//data was added successfully
+			return InsertResult::SUCCESS;
 		}
 
 		//dispatch to insert_back or insert_sort as needed
-		inline int insert(const STORE_T& val) {return insert(std::move(STORE_T{val}));}
-		inline int insert(STORE_T&& val) {
+		inline InsertResult insert(const STORE_T& val) {return insert(std::move(STORE_T{val}));}
+		inline InsertResult insert(STORE_T&& val) {
 			if constexpr (KEEP_SORTED) {
 				return insert_sort(std::move(val));
 			}
 			else {
-				return contains(val) ? 0 : insert_back(std::move(val));
-				
+				return contains(val) ? InsertResult::DUPLICATE : insert_back(std::move(val));
 			}
 		}
 
 		
 		//merge two nodes when the data is known to be unique
-		int merge_unique(OctreeNode&& other) {
+		InsertResult merge_unique(OctreeNode&& other) {
 			if (cursor + other.cursor > MAX_DATA) {return -1;} //cannot merge
 			std::move(other.begin(), other.end(), end());
 			cursor += other.cursor;
@@ -150,9 +159,10 @@ namespace gutil
 		}
 
 		//merge two nodes when the data could be duplicated
-		int merge(OctreeNode&& other) {
+		InsertResult merge(OctreeNode&& other) {
 			assert(is_valid());
 			assert(other.is_valid());
+			assert(key == other.key);
 
 			while (other.cursor>0 && cursor<MAX_DATA) {
 				--other.cursor; //point to last data

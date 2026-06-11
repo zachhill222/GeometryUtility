@@ -25,7 +25,8 @@ namespace gutil
 		//define common aliases for tree logic
 		using node_type  	= NODE_T;
 		using key_type   	= typename node_type::key_type;
-		
+		using InsertResult  = typename node_type::InsertResult;
+
 		//record constants
 		static constexpr uint16_t MAX_DATA    = node_type::MAX_DATA;
 		static constexpr uint64_t DIM 		  = key_type::DIM;
@@ -42,13 +43,6 @@ namespace gutil
 		OctreeBase(const box_type& bbox) : root_box{bbox} {}
 		OctreeBase(const point_type& low, const point_type& high) : root_box{low, high} {}
 
-		//return codes
-		enum class InsertResult : int
-		{
-			INSERTED	=  1,
-			DUPLICATE	=  0,
-			OVERFLOW 	= -1
-		};
 
 		//allow public access to nodes
 		using node_iterator = std::vector<node_type>::iterator;
@@ -77,7 +71,7 @@ namespace gutil
 		std::vector<node_type> leafs{node_type{}};	//this must be sorted for efficent operations
 		bool is_sorted = true;						//track if the vector needs to be sorted
 		bool needs_erase = false;					//track if there are nodes that need to be erased (i.e., after splitting)
-		inline bool is_valid() const {return is_sorted && !needs_erase;}
+		inline bool tree_valid() const {return is_sorted && !needs_erase;}
 
 		//allow lookup into node vectors via their keys (i.e., without creating a temporary node)
 		struct KeyCompare {
@@ -87,10 +81,11 @@ namespace gutil
 			inline constexpr bool operator()(const key_type&  a, const node_type& b) const {return a     < b.key;}
 		};
 
-		//delete any marked nodes (key set to 0, which is invalid)
-		void delete_marked() {
+		//erase any marked nodes (key set to 0, which is invalid)
+		void erase_marked() {
 			if (needs_erase) {
-				leafs.erase_if([](node_type& node) {return node.key == INVALID_KEY;})
+				std::erase_if(leafs, [](node_type& node) {return node.key == INVALID_KEY;})
+				needs_erase = false;
 			}
 		}
 		/////////////////////////////////////////////////////////////////////////////
@@ -100,7 +95,7 @@ namespace gutil
 
 		//given a point, find the (first) leaf node that contains it
 		node_iterator find_by_point(const point_type& point) {
-			assert(is_valid());
+			assert(tree_valid());
 
 			//initialize the key and box of the current node
 			key_type key{}; //root key
@@ -115,7 +110,7 @@ namespace gutil
 			for (uint16_t dd=0; dd<=MAX_DEPTH; ++dd) {
 				//check if the leaf exists
 				it = std::lower_bound(it, leafs.end(), key, KeyCompare{});
-				if (it!=list.end() && it->key==key) {return it;}
+				if (it!=leafs.end() && it->key==key) {return it;}
 
 				//descend to child (updates the key, low, and high)
 				key.descend(low, high, point);
@@ -124,7 +119,7 @@ namespace gutil
 
 		//given a key, find the leaf (if it exists)
 		node_iterator find_by_key(const key_type key) {
-			assert(is_valid());
+			assert(tree_valid());
 			node_iterator it = std::lower_bound(leafs.begin(), leafs.end(), key, KeyCompare{});
 			if (it != leafs.end() && it->key == key) {return it;}
 			return leafs.end();
@@ -132,7 +127,7 @@ namespace gutil
 
 		//find the ancestor (or itself) of a node (if it exists)
 		node_iterator find_ancestor_by_key(key_type key) {
-			assert(is_valid());
+			assert(tree_valid());
 			node_iterator it = std::lower_bound(leafs.begin(), leafs.end(), key, KeyCompare{});
 
 			if (it != leafs.end() && it->key == key) {
@@ -158,40 +153,101 @@ namespace gutil
 		}
 
 		//split an existing node. the existing node will be replaced with the first child.
-		//the remaining children will be inserted to the end of the vector.
+		//the remaining children will be inserted to the end of the provided vector.
 		//the tree will be in an invalid state after this
 		template<typename IS_VALID>
-		void split(node_iterator& it, IS_VALID&& is_valid) {
+		inline void split(node_iterator& it, IS_VALID&& is_valid) {split(it, std::forward<IS_VALID>(is_valid), leafs);}
+
+		template<typename IS_VALID>
+		void split(node_iterator& it, IS_VALID&& is_valid, std::vector<node_type>& list) {
 			auto children = it->split(std::forward<IS_VALID>(is_valid));
 			*it = std::move(children[0]);
-			leafs.insert(leafs.end(), 
+			list.insert(list.end(), 
 				std::make_move_iterator(children.begin()+1),
 				std::make_move_iterator(children.end()));
 		}
 
-		//split an existing node. the existing node will be marked for deletion.
-		//the children will be inserted to the end of the provided vector.
-		//the tree will be in an invalid state after this
-		template<typename IS_VALID>
-		void split(node_iterator& it, IS_VALID&& is_valid, std::vector<node_type>& list) {
-			auto children = it->split(std::forward<IS_VALID>(is_valid));
-			it->key = INVALID_KEY;
-			list.insert(leafs.end(), 
-				std::make_move_iterator(children.begin()),
-				std::make_move_iterator(children.end()));
-		}
-
-		//merge the nodes from start to end. if any nodes need to be split, the children nodes are added
-		//to the end of the node storage vector. all data will be compressed to the nodes nearest start.
-		//all empty nodes are marked for deletion.
-		template<typename IS_VALID>
-		bool merge(node_iterator& start, node_iterator& end, IS_VALID&& is_valid) {
+		//compress the data in the range [start,end). they must all have the same key.
+		//empty nodes are marked for deletion. the iterator to the end of the compressed range is returned.
+		node_iterator compress(node_iterator& start, node_iterator& end) {
 			#ifndef NDEBUG
+				assert(start!=end);
 				for (auto it=start; it!=end; ++it) {assert(it->key == start->key);}
 			#endif
 
-			//make a single pass
+			node_iterator sink   = start;
+			node_iterator source = std::next(start);
+			while (source!=end) {
+				assert(source != sink);
+				sink->merge(std::move(*source));
+				if (sink->full()) {++sink;}
+				if (source->empty()) {++source;}
+				if (source==sink) {++source;}
+			}
+
+			//mark empty nodes for deletion
+			for (auto it = std::next(sink); it!=end; ++it) {
+				it->key = INVALID_KEY;
+				needs_erase = true;
+			}
+			
+			return sink;
 		}
+
+
+		//compress and split nodes in the provided range.
+		//append new children to the provided list to avoid memory re-allocations mid loop
+		//the provided range must all have the same key
+		template<typename IS_VALID>
+		void compress_and_split(node_iterator& start, node_iterator& end, IS_VALID&& is_valid, std::vector<node_type>& list) {
+			#ifndef NDEBUG
+				assert(start!=end);
+				for (auto it=start; it!=end; ++it) {assert(it->key == start->key);}
+			#endif
+
+			//compress data
+			node_iterator comp_last = compress(start, end);
+
+			//split any nodes (note that comp_last==start if all nodes were successfully merged into a single node)
+			for (auto it=start; it!=comp_last; ++it) {
+				split(it, std::forward<IS_VALID>(is_valid), list);
+			}
+		}
+
+
+		template<typename IS_VALID>
+		void sort_and_merge(IS_VALID&& is_valid) {
+            std::sort(leafs.begin(), leafs.end(), KeyCompare{});
+            
+            //compress data, split nodes as needed
+            //avoid re-sizing the leaf vector by adding any created children to
+            //a temporary vector
+            node_iterator start = leafs.begin();
+            std::vector<node_type> children;
+            while (start != leafs.end()) {
+                node_iterator end = std::next(start);
+                while (end != leafs.end() && end->key == start->key) {++end;}
+                compress_and_split(start, end, std::forward<IS_VALID>(is_valid), children);
+                start = end;
+            }
+
+            //erase marked nodes
+            erase_marked();
+
+            //add children if needed
+            if (!children.empty()) {
+            	leafs.insert(leafs.end(), 
+            		std::make_move_iterator(children.begin()),
+            		std::make_move_iterator(children.end()));
+
+            	//recurse until there are no children
+            	sort_and_merge(std::forward<IS_VALID>(is_valid));
+            }
+
+            //there were no added children, octree is in a valid state
+            //sorting is maintained after deleting the marked nodes
+        }
+
 
 		/////////////////////////////////////////////////////////////////////////////
 
@@ -200,6 +256,9 @@ namespace gutil
 
 		//expand the bounding box to contain the target without changing the spatial extent of any leaf node
 		void expand(const box_type& target_box) {
+			//TODO: remove and construct new tree? This violates the space partitioning and possibly "multiple data" regions.
+
+
 			const auto target_center = target_box.center();
 
 			//get the key from a box that contains the target to the (current) root node
