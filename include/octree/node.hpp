@@ -1,222 +1,125 @@
 #pragma once
 
-#include "octree/digit_key.hpp"
+#include "geometry/point.hpp"
+#include "geometry/box.hpp"
 
 #include <array>
-#include <cassert>
 #include <concepts>
 
 namespace gutil
 {
-	//use template specialization to either store the data directly (single data)
-	//or store an index into a vector of data.
-
-
-
-	//define core components
-	template<typename KEY_T=DigitKey<3>>
-	struct OctreeNodeBase
+	//class for passing compile time options
+	template<typename DataT, bool SingleData, size_t MaxData, size_t Dimension, typename ScalarT>
+	struct NodeOpts
 	{
-		//constants
-		static constexpr uint64_t MAX_DEPTH  = KEY_T::MAX_DEPTH;
-		static constexpr uint16_t DIM        = KEY_T::DIM;
-		static constexpr uint16_t N_CHILDREN = KEY_T::N_CHILDREN;
+		static constexpr bool SINGLE_DATA	= SingleData;
+		static constexpr size_t DIM 		= Dimension;
+		static constexpr size_t MAX_DATA 	= MaxData;
+		static constexpr size_t N_CHILDREN 	= (1 << Dimension);
 
-		//define common aliases
-		using key_type 	 = KEY_T;
+		using value_type 	= DataT;
+		using point_type 	= Point<DIM,ScalarT>;
+		using box_type 		= Box<DIM,ScalarT>;
+		using scalar_type 	= ScalarT;
 
-		template<typename T=double>
-		using box_type = typename key_type::box_type<T>;
-
-		//store the key
-		KEY_T key{};
-		
-		//define flags for inserting and merging data
-		enum class InsertResult : int
-		{
-			SUCCESS	  =  1,
-			DUPLICATE =  0,
-			OVERFLOW  = -1
-		};
-
-		//pass comparisons to the key
-		bool constexpr operator==(const OctreeNodeBase other) const {return key == other.key;}
-		bool constexpr operator!=(const OctreeNodeBase other) const {return key != other.key;}
-		bool constexpr operator<=(const OctreeNodeBase other) const {return key <= other.key;}
-		bool constexpr operator>=(const OctreeNodeBase other) const {return key >= other.key;}
-		bool constexpr operator<( const OctreeNodeBase other) const {return key <  other.key;}
-		bool constexpr operator>( const OctreeNodeBase other) const {return key >  other.key;}
-
-		//simple constructor
-		OctreeNodeBase() : key{} {} //root
-		OctreeNodeBase(KEY_T key) : key{key} {}
-		
-		//get the node extents given the root extents
-		template<typename T>
-		inline constexpr box_type<T> bbox(const box_type<T>& root_bbox) const noexcept {return key.bbox(root_bbox);}
-
-		//change the key to point at a new root
-		void prepend(key_type root) {key.prepend(root);}
+		//ensure that the scalar_type is reasonable
+		static_assert(std::convertible_to<scalar_type,double>);
 	};
-	
-	//TODO: inheritance probably isn't needed, but I'm not sure if I want other node types
-	template<typename STORE_T=uint32_t, bool SINGLE_DATA_=true, uint16_t MAX_DATA_=64, typename KEY_T=OctreeDigitKey<3>, bool ALLOW_SORTED_=true>
-	struct OctreeNode: public OctreeNodeBase<KEY_T>
+
+	//types of nodes
+	enum class NodeTag : uint8_t
 	{
-		//sanity checks
-		static_assert(std::equality_comparable<STORE_T>, "OctreeNode - STORE_T must be equality comparable");
-		static_assert(SINGLE_DATA_ || std::integral<STORE_T>, "OctreeNode - STORE_T must be an index/integer type for multiple data");
+		INTERNAL,
+		LEAF
+	};
 
-		//convenient aliases
-		using base_type  = OctreeNodeBase<KEY_T>;
-		using store_type = STORE_T;
-		using key_type   = KEY_T;
+	//return types for inserting data
+	enum class InsertReturn : uint8_t
+	{
+		SUCCESS,	//unique data was successfully added
+		EXISTS,		//data already existed and was not added
+		OVERFLOW,	//there was no room to add the data
+		FAIL		//the data could not be added (for example, if the data was invalid)
+	};
 
-		//convenient constants
-		static constexpr bool SINGLE_DATA    = SINGLE_DATA_;
-		static constexpr uint16_t MAX_DATA   = MAX_DATA_;
-		static constexpr bool IS_HOMOGENEOUS = true;
-		static constexpr bool IS_ORDERED     = std::totally_ordered<STORE_T>;
-		static constexpr bool KEEP_SORTED    = (IS_ORDERED&&ALLOW_SORTED_) ? (MAX_DATA>64) : false;
+	//a class to determine if a child index is internal or leaf type
+	struct NodeIndex
+	{
+		size_t index;
+		NodeTag tag;
 
-		//bring items from the base to this class
-		using base_type::base_type;		//constructors
-		using base_type::key; 			//key type
-		using base_type::N_CHILDREN;	//number of child nodes (constexpr uint64_t)
-		using base_type::InsertResult;	//return flags
+		//guard to set if a child does not exist
+		static constexpr size_t NULL_NODE = size_t(-1);
 
-		//add homogeneous storage
-		std::array<STORE_T,MAX_DATA> values{};
-		uint16_t cursor{0}; //points to next empty storage, also the number of stored values
+		//default constructor
+		constexpr NodeIndex() : index{NULL_NODE}, tag{NodeTag::INTERNAL} {}
+
+		//comparisons
+		bool operator==(const NodeTag& other) {return (index==other.index) && (tag==other.tag);}
+		bool operator!=(const NodeTag& other) {return (index!=other.index) || (tag!=other.tag);}
 		
-		//convenient querries
-		inline constexpr bool empty() const {return cursor==0;}
-		inline constexpr size_t size() const {return static_cast<size_t>(cursor);}
-		inline constexpr bool full() const {return cursor>=MAX_DATA;}
-		inline constexpr uint16_t capacity_remaining() const {return full() ? 0 : MAX_DATA-cursor;}
+		static constexpr NodeIndex leaf(const size_t idx) {return {idx, NodeTag::LEAF};}
+		static constexpr NodeIndex internal(const size_t idx) {return {idx, NodeTag::INTERNAL};}
+	};
 
-		//iterate through data
-		auto begin() {return values.begin();}
-		auto begin() const {return values.begin();}
-		auto end() {return values.begin()+cursor;}
-		auto end() const {return values.begin()+cursor;}
+	//a class for leaf nodes
+	template<NodeOpts Opts>
+	struct LeafNode
+	{
+		//determine if we are storing data or indices to data
+		//for now, always store indices so the underlying data is unique and contiguous
+		using store_type = size_t;
 
-		//check if data is already included
-		bool contains(const STORE_T& val) const {
-			if constexpr (KEEP_SORTED) {
-				return std::binary_search(begin(), end(), val);
-			}
-			else {
-				return std::find(begin(), end(), val) != end();
-			}
-		}
+		//store spatial extents
+		typename Opts::box_type bbox;
 
-		//insert data and don't maintain sorting or check containment
-		InsertResult insert_back(STORE_T&& val) {
-			if (cursor>=MAX_DATA) {return InsertResult::OVERFLOW;}
-			values[cursor++] = std::move(val);
-			return InsertResult::SUCCESS;
-		}
-
-		//insert data and maintain sorting. checks for containment.
-		InsertResult insert_sort(STORE_T&& val) {
-			if (cursor>=MAX_DATA) {return InsertResult::OVERFLOW;}
-
-			auto it = std::lower_bound(begin(), end(), val);
-			if (it != end() && *it == val) {return InsertResult::DUPLICATE;}
-			
-			//shift the data back to make room for the new data
-			std::move_backward(it, end(), end()+1);
-			*it = std::move(val);
-			++cursor;
-
-			return InsertResult::SUCCESS;
-		}
-
-		//dispatch to insert_back or insert_sort as needed
-		inline InsertResult insert(const STORE_T& val) {return insert(std::move(STORE_T{val}));}
-		inline InsertResult insert(STORE_T&& val) {
-			if constexpr (KEEP_SORTED) {
-				return insert_sort(std::move(val));
-			}
-			else {
-				return contains(val) ? InsertResult::DUPLICATE : insert_back(std::move(val));
-			}
-		}
-
+		//data
+		std::array<store_type, Opts::MAX_DATA> data;
+		size_t cursor{0};
 		
-		//merge two nodes when the data is known to be unique
-		InsertResult merge_unique(OctreeNode&& other) {
-			if (cursor + other.cursor > MAX_DATA) {return -1;} //cannot merge
-			std::move(other.begin(), other.end(), end());
-			cursor += other.cursor;
+		//tag for validity checks
+		static constexpr NodeTag TAG = NodeTag::LEAF;
+
+		//tree connectivity
+		size_t parent = size_t(-1);
+
+		//queries
+		size_t n_idx() const {return cursor;}
+		bool full() const {return cursor>=Opts::MAX_DATA;}
+		bool contains(const store_type value) const {
+			for (size_t ii=0; ii<cursor; ++ii)
+				if (data[ii] == value)
+					return true;
+			return false;
+		}
+
+		store_type operator[](size_t ii) const {assert(ii<cursor); return data[ii];}
+		store_type& operator[](size_t ii) {assert(ii<cursor); return data[ii];}
+		
+		InsertReturn insert(const store_type value) {
+			assert(cursor<Opts::MAX_DATA);
+			if (full()) return InsertReturn::OVERFLOW;
+			if (contains(value)) return InsertReturn::EXISTS;
 			
-			if constexpr (KEEP_SORTED) {
-				std::sort(begin(), end());
-			}
-
-			return 1;
+			data[cursor++] = value;
+			return InsertReturn::SUCCESS;
 		}
 
-		//merge two nodes when the data could be duplicated
-		InsertResult merge(OctreeNode&& other) {
-			assert(is_valid());
-			assert(other.is_valid());
-			assert(key == other.key);
+		//constructor
+		LeafNode(const typename Opts::box_type& box) : bbox(box) {}
+	};
 
-			while (other.cursor>0 && cursor<MAX_DATA) {
-				--other.cursor; //point to last data
-				const int flag = insert_back(std::move(other.values[other.cursor]));
-				assert(flag!=-1); //should never happen with the while loop limits
-			}
+	//a class for internal nodes
+	template<NodeOpts Opts>
+	struct InternalNode
+	{
+		std::array<NodeIndex, Opts::N_CHILDREN> children;
+		size_t parent = size_t(-1);
 
-			if constexpr (KEEP_SORTED) {			//sort if needed
-				std::sort(begin(), end());
-				auto last = std::unique(begin(), end());
-				cursor   -= std::distance(last, end());
-			}
-
-			if (!other.empty()) {return -1;}		//merge was unsuccessful (data still left in other node)
-
-			return 1; 								//merge was successful
-		}
-
-		//take the data from this node and push it to its children
-		template<typename VALID_T>
-		std::array<OctreeNode,N_CHILDREN> split(VALID_T&& is_valid) {
-			//initialize children
-			std::array<OctreeNode,N_CHILDREN> children;
-			for (uint64_t c=0; c<N_CHILDREN; ++c) {children[c] = OctreeNode{key.child(c)};}
-
-			//move or copy data to children (note if this node data is sorted, then the child data is also sorted)
-			for (uint16_t i=0; i<cursor; ++i) {
-				#ifndef NDEBUG
-				int n_children = 0;
-				#endif
-				for (int c=0; c<N_CHILDREN; ++c) {
-					if (is_valid(children[c].key, values[i])) {
-						#ifndef NDEBUG
-						++n_children;
-						#endif
-
-						if constexpr (SINGLE_DATA) {
-							children[c].insert_back(std::move(values[i]));
-							break;
-						}
-						else {children[c].insert_back(values[i]);}
-					}
-				}
-
-				#ifndef NDEBUG
-				assert(n_children>0);
-				#endif
-			}
-
-			//mark that the data has been deleted from this node
-			cursor = 0;
-
-			//return the children with their data
-			return children;
-		}
+		static constexpr NodeTag TAG = NodeTag::INTERNAL;
+		typename Opts::box_type bbox;
+		
+		//constructor
+		InternalNode(const typename Opts::box_type box) : bbox(box) {for (auto& idx : children) idx = NodeIndex{};}
 	};
 }

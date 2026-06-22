@@ -102,7 +102,7 @@ namespace gutil {
 			Node_t* node;
 			size_t  idx;
 		};
-
+		
 		MultipleInMultipleOut<QueueData_t> _queue;
 		bool _bbox_has_changed = false;
 		

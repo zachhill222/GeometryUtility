@@ -159,7 +159,7 @@ namespace gutil
 			//clear sentinel
 			const uint64_t old_root_bit = R_S();
 			_data_ &= ~(uint64_t{1} << old_root_bit);
-			_data_ |= (prefix << old_root_bit);
+			_data_ |= (prefix._data_ << old_root_bit);
 			return *this;
 		}
 
