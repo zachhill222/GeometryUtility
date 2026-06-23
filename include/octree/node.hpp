@@ -19,17 +19,19 @@ namespace gutil
 	}
 
 	//class for octree compile time options
-	template<typename StoreType, size_t MaxData, size_t Dimension, typename ScalarT>
+	template<typename ValueType, bool StoreInLeaf, size_t MaxData, size_t Dimension, typename ScalarT>
 	struct NodeOpts
 	{
-		static constexpr size_t DIM 		= Dimension;
-		static constexpr size_t MAX_DATA 	= MaxData;
-		static constexpr size_t N_CHILDREN 	= (1 << Dimension);
+		static constexpr size_t DIM 		  = Dimension;
+		static constexpr size_t MAX_DATA 	  = MaxData;
+		static constexpr size_t N_CHILDREN 	  = (1 << Dimension);
+		static constexpr bool   STORE_IN_LEAF = StoreInLeaf;
 
-		using store_type 	= StoreType;
+		using value_type 	= ValueType;
 		using point_type 	= Point<DIM,ScalarT>;
 		using box_type 		= Box<DIM,ScalarT>;
 		using scalar_type 	= ScalarT;
+		using store_type    = std::conditional_t<StoreInLeaf, value_type, size_t>;
 
 		//ensure that the scalar_type is reasonable
 		static_assert(std::convertible_to<scalar_type,double>);
@@ -129,7 +131,7 @@ namespace gutil
 		using store_type  = typename Opts::store_type;	//type that is stored in the leaf nodes
 		using point_type  = typename Opts::point_type;	//type of spatial points
 		using box_type	  = typename Opts::box_type;	//type of spatial axis-aligned-bounding-boxes
-		using scalar_type = typename Opts::scalar_type;	//type that emulates real numbers for the spatial points and aabb\
+		using scalar_type = typename Opts::scalar_type;	//type that emulates real numbers for the spatial points and aabb
 
 		//construct from a box
 		using base_type::base_type;
