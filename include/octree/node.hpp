@@ -5,121 +5,177 @@
 
 #include <array>
 #include <concepts>
+#include <cstdint>
 
 namespace gutil
 {
-	//class for passing compile time options
-	template<typename DataT, bool SingleData, size_t MaxData, size_t Dimension, typename ScalarT>
+	//define tags for node types
+	namespace NodeTag
+	{
+		inline constexpr uintptr_t NONE     = 0;
+		inline constexpr uintptr_t LEAF     = 1;
+		inline constexpr uintptr_t INTERNAL = 2;
+		inline constexpr size_t    NODE_ALIGN_BYTES = 8;
+	}
+
+	//class for octree compile time options
+	template<typename StoreType, size_t MaxData, size_t Dimension, typename ScalarT>
 	struct NodeOpts
 	{
-		static constexpr bool SINGLE_DATA	= SingleData;
 		static constexpr size_t DIM 		= Dimension;
 		static constexpr size_t MAX_DATA 	= MaxData;
 		static constexpr size_t N_CHILDREN 	= (1 << Dimension);
 
-		using value_type 	= DataT;
+		using store_type 	= StoreType;
 		using point_type 	= Point<DIM,ScalarT>;
 		using box_type 		= Box<DIM,ScalarT>;
 		using scalar_type 	= ScalarT;
 
 		//ensure that the scalar_type is reasonable
 		static_assert(std::convertible_to<scalar_type,double>);
+		static_assert(MAX_DATA > 0);
+		static_assert(DIM > 0);
 	};
 
-	//types of nodes
-	enum class NodeTag : uint8_t
+	//we use tagged pointers to differentiate between internal and leaf nodes
+	//it is imperative that the nodes are aligned correctly so that the last several bits
+	//of the pointer may be used for the tag (they will always be 0 due to the alignment)
+	//high bits could be used without the alignment, but that will be platform dependent.
+	//note if a type T is aligned to 4 bytes, the last 2 bits will be free. Similarly,
+	//if the alignment is 16, the last 4 bits will be free.
+	template<size_t AlignBytes>
+	struct TaggedPointer
 	{
-		INTERNAL,
-		LEAF
-	};
+		static_assert( (AlignBytes & (AlignBytes-1)) == 0, "TaggedPointer: alignment must be a power of 2");
+		static constexpr uintptr_t TAG_BITS = std::bit_width(AlignBytes) - 1;
+		static constexpr uintptr_t TAG_MASK = AlignBytes-1; //same as (uintptr_t{1} << TAG_BITS) - 1
+		static constexpr uintptr_t PTR_MASK = ~TAG_MASK;
+		uintptr_t _data_{0};	//nullptr, no tag of 0
 
-	//return types for inserting data
-	enum class InsertReturn : uint8_t
-	{
-		SUCCESS,	//unique data was successfully added
-		EXISTS,		//data already existed and was not added
-		OVERFLOW,	//there was no room to add the data
-		FAIL		//the data could not be added (for example, if the data was invalid)
-	};
-
-	//a class to determine if a child index is internal or leaf type
-	struct NodeIndex
-	{
-		size_t index;
-		NodeTag tag;
-
-		//guard to set if a child does not exist
-		static constexpr size_t NULL_NODE = size_t(-1);
-
-		//default constructor
-		constexpr NodeIndex() : index{NULL_NODE}, tag{NodeTag::INTERNAL} {}
-
-		//comparisons
-		bool operator==(const NodeTag& other) {return (index==other.index) && (tag==other.tag);}
-		bool operator!=(const NodeTag& other) {return (index!=other.index) || (tag!=other.tag);}
+		//cast the pointer to a specified type
+		template<typename T> requires (alignof(T) >= AlignBytes)
+		T* pointer() const {return reinterpret_cast<T*>(_data_&PTR_MASK);}
 		
-		static constexpr NodeIndex leaf(const size_t idx) {return {idx, NodeTag::LEAF};}
-		static constexpr NodeIndex internal(const size_t idx) {return {idx, NodeTag::INTERNAL};}
+		//get the tag
+		uintptr_t tag() const {return _data_&TAG_MASK;}
+
+		//set the tag
+		void set_tag(const uintptr_t t) {
+			_data_ &= PTR_MASK;
+			_data_ |= (t&TAG_MASK);
+		}
+
+		//check if the pointer is null
+		bool is_null() const {return (_data_&PTR_MASK) == 0;}
+
+		//factory to make a null pointer
+		static constexpr TaggedPointer null() {return TaggedPointer{};}
+
+		//construct a tagged pointer from a reference
+		template<typename T> requires (alignof(T) >= AlignBytes)
+		TaggedPointer(T& obj, const uintptr_t t=0) : _data_(std::reinterpret_cast<uintptr_t>(&obj)) {set_tag(t);}
+
+		//construct a tagged pointer from a pointer
+		template<typename T> requires (alignof(T) >= AlignBytes)
+		TaggedPointer(T* ptr, const uintptr_t t=0) : _data_(std::reinterpret_cast<uintptr_t>(ptr)) {set_tag(t);}
+
+		//default is null
+		constexpr TaggedPointer() noexcept : _data_{0} {}
 	};
 
-	//a class for leaf nodes
+	//base class for nodes
 	template<NodeOpts Opts>
-	struct LeafNode
+	struct alignas(NodeTag::NODE_ALIGN_BYTES) NodeBase
 	{
-		//determine if we are storing data or indices to data
-		//for now, always store indices so the underlying data is unique and contiguous
-		using store_type = size_t;
+		using box_type    = typename Opts::box_type;
+		using point_type  = typename Opts::point_type;
+		using scalar_type = typename Opts::scalar_type;
 
-		//store spatial extents
-		typename Opts::box_type bbox;
+		//constructor must always set the box
+		NodeBase(const box_type& box) : bbox(box) {}
 
-		//data
-		std::array<store_type, Opts::MAX_DATA> data;
+		//store the box for this node
+		box_type bbox;
+
+		//get the box of a child node
+		box_type child_box(const size_t n) const {
+			assert(n<Opts::N_CHILDREN);
+
+			//the bits of the child number encode the high/low side of the corresponding axis
+			const point_type low = bbox.low();
+			const point_type high = bbox.high();
+			const point_type center = low + scalar_type{0.5}*(high-low);
+			point_type vertex = low;
+			for (size_t ax=0; ax<Opts::DIM; ++ax) {
+				if ( n & (size_t{1} << ax) ) {vertex[ax] = high[ax];}
+			}
+
+			return {center, vertex};
+		}
+	};
+
+
+	//class for leaf nodes
+	template<NodeOpts Opts>
+	struct LeafNode : public NodeBase<Opts>
+	{
+		//save options
+		static constexpr NodeOpts OPTS 	 = Opts;
+		static constexpr size_t MAX_DATA = Opts::MAX_DATA;
+		static constexpr uintptr_t TAG 	 = NodeTag::LEAF;
+
+		//save aliases
+		using base_type   = NodeBase<Opts>;
+		using store_type  = typename Opts::store_type;	//type that is stored in the leaf nodes
+		using point_type  = typename Opts::point_type;	//type of spatial points
+		using box_type	  = typename Opts::box_type;	//type of spatial axis-aligned-bounding-boxes
+		using scalar_type = typename Opts::scalar_type;	//type that emulates real numbers for the spatial points and aabb\
+
+		//construct from a box
+		using base_type::base_type;
+
+		//store data and cursor
+		std::array<store_type, MAX_DATA> data;
 		size_t cursor{0};
-		
-		//tag for validity checks
-		static constexpr NodeTag TAG = NodeTag::LEAF;
 
-		//tree connectivity
-		size_t parent = size_t(-1);
+		//iterators for easier looping over the data
+		auto begin() const {return data.cbegin();}
+		auto begin() {return data.begin();}
+		auto end() const {return data.cbegin()+cursor;}
+		auto end() {return data.begin()+cursor;}
 
-		//queries
-		size_t n_idx() const {return cursor;}
-		bool full() const {return cursor>=Opts::MAX_DATA;}
-		bool contains(const store_type value) const {
-			for (size_t ii=0; ii<cursor; ++ii)
-				if (data[ii] == value)
-					return true;
-			return false;
-		}
-
-		store_type operator[](size_t ii) const {assert(ii<cursor); return data[ii];}
-		store_type& operator[](size_t ii) {assert(ii<cursor); return data[ii];}
-		
-		InsertReturn insert(const store_type value) {
-			assert(cursor<Opts::MAX_DATA);
-			if (full()) return InsertReturn::OVERFLOW;
-			if (contains(value)) return InsertReturn::EXISTS;
-			
-			data[cursor++] = value;
-			return InsertReturn::SUCCESS;
-		}
-
-		//constructor
-		LeafNode(const typename Opts::box_type& box) : bbox(box) {}
+		//simple queries
+		bool full() const {return cursor>=MAX_DATA;}
+		bool empty() const {return cursor==0;}
+		size_t size() const {return cursor;}
 	};
 
-	//a class for internal nodes
+	//class for internal nodes
 	template<NodeOpts Opts>
-	struct InternalNode
+	struct InternalNode : public NodeBase<Opts>
 	{
-		std::array<NodeIndex, Opts::N_CHILDREN> children;
-		size_t parent = size_t(-1);
+		//save options
+		static constexpr NodeOpts OPTS = Opts;
+		static constexpr size_t N_CHILDREN = Opts::N_CHILDREN;
+		static constexpr uintptr_t TAG = NodeTag::INTERNAL;
 
-		static constexpr NodeTag TAG = NodeTag::INTERNAL;
-		typename Opts::box_type bbox;
-		
-		//constructor
-		InternalNode(const typename Opts::box_type box) : bbox(box) {for (auto& idx : children) idx = NodeIndex{};}
+		//save aliases
+		using base_type   = NodeBase<Opts>;
+		using store_type  = typename Opts::store_type;	//type that is stored in the leaf nodes
+		using point_type  = typename Opts::point_type;	//type of spatial points
+		using box_type	  = typename Opts::box_type;	//type of spatial axis-aligned-bounding-boxes
+		using scalar_type = typename Opts::scalar_type;	//type that emulates real numbers for the spatial points and aabb
+
+		//construct from a box
+		InternalNode(const box_type& box) : base_type(box) {children.fill(TaggedPointer<alignof(base_type)>{});}
+
+		//store pointers to children
+		std::array<TaggedPointer<alignof(base_type)>, N_CHILDREN> children;
+
+		//iterators for easier looping over the children
+		auto begin() const {return children.cbegin();}
+		auto begin() {return children.begin();}
+		auto end() const {return children.cend();}
+		auto end() {return children.end();}
 	};
 }
