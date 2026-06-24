@@ -42,6 +42,17 @@ namespace gutil
 			return leaf_contains(find_leaf(value), value);
 		}
 
+		index_type find(const value_type& value) const {
+			const leaf_node* leaf = find_leaf(value);
+			if (leaf) {
+				for (index_type idx : *leaf) {
+					assert(idx<data.size());
+					if (data[idx] == value) {return idx;}
+				}
+			}
+			return index_type(-1);
+		}
+
 		const box_type& bbox() const {
 			assert(root!=nullptr);
 			return root->bbox;

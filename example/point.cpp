@@ -112,7 +112,23 @@ int main(int argc, char** argv)
     }
 
     // -----------------------------------------------------------------------
-    // 5. nearest() — find the nearest stored point to each query point
+    // 5. find() — check every point is found
+    // -----------------------------------------------------------------------
+    t.start();
+    found = 0;
+    for (size_t qi=0; qi<points.size(); ++qi) {
+        if (qi == tree.find(points[qi])) { ++found; }
+    }
+    const double find_ms = t.elapsed_ms();
+    print_result("find", find_ms, N);
+
+    if (found != N) {
+        std::cerr << "ERROR: find() missed " << (N - found) << " points\n";
+        return 1;
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. nearest() — find the nearest stored point to each query point
     //    Use freshly generated query points so we don't just look up existing ones
     // -----------------------------------------------------------------------
     std::vector<Point> queries;
@@ -120,7 +136,7 @@ int main(int argc, char** argv)
     for (size_t i = 0; i < N; ++i) {
         queries.push_back({dist(rng), dist(rng), dist(rng)});
     }
-
+ 
     t.start();
     size_t nearest_found = 0;
     for (const Point& q : queries) {
@@ -129,23 +145,23 @@ int main(int argc, char** argv)
     }
     const double nearest_ms = t.elapsed_ms();
     print_result("nearest", nearest_ms, N);
-
+ 
     if (nearest_found != N) {
         std::cerr << "ERROR: nearest() failed for "
                   << (N - nearest_found) << " queries\n";
         return 1;
     }
-
+ 
     // -----------------------------------------------------------------------
-    // 6. Verify nearest() correctness on a small random sample
+    // 7. Verify nearest() correctness on a small random sample
     //    Brute-force the answer and compare
     // -----------------------------------------------------------------------
     const size_t VERIFY_N = std::min(N, size_t(1000));
     size_t mismatches = 0;
-
+ 
     for (size_t qi = 0; qi < VERIFY_N; ++qi) {
         const Point& q = queries[qi];
-
+ 
         // brute force
         size_t bf_idx  = 0;
         float  bf_dist = std::numeric_limits<float>::max();
@@ -154,18 +170,18 @@ int main(int argc, char** argv)
             const float  d2   = gutil::dot(diff, diff);
             if (d2 < bf_dist) { bf_dist = d2; bf_idx = i; }
         }
-
+ 
         // octree
         const size_t ot_idx  = tree.nearest(q);
         const Point  ot_diff = q - points[ot_idx];
         const float  ot_dist = gutil::dot(ot_diff, ot_diff);
-
+ 
         // distances should match (indices may differ for ties)
         if (std::abs(ot_dist - bf_dist) > 1e-6f) {
             ++mismatches;
         }
     }
-
+ 
     if (mismatches == 0) {
         std::cout << "\nnearest() verified correct on "
                   << VERIFY_N << " samples.\n";
@@ -175,8 +191,9 @@ int main(int argc, char** argv)
         return 1;
     }
 
+
     // -----------------------------------------------------------------------
-    // 7. clear() and re-insert — sanity check
+    // 8. clear() and re-insert — sanity check
     // -----------------------------------------------------------------------
     t.start();
     tree.clear();
