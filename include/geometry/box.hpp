@@ -26,10 +26,10 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		
 		// Default constructor: unit box centered at origin
-		constexpr Box() noexcept : _low(Point_t(-1.0)), _high(Point_t(1.0)) {}
+		constexpr Box() noexcept : _low(point_type(-1.0)), _high(point_type(1.0)) {}
 
 		// Constructor from two points (automatically orders them)
-		constexpr Box(const Point_t &vertex1, const Point_t &vertex2) noexcept : 
+		constexpr Box(const point_type &vertex1, const point_type &vertex2) noexcept : 
 			_low(elmin(vertex1, vertex2)), _high(elmax(vertex1, vertex2)) {
 			assert(_low <= _high);
 		}
@@ -39,15 +39,15 @@ namespace gutil {
 		constexpr Box(Box &&other) noexcept = default;
 		constexpr Box& operator=(const Box &other) = default;
 		constexpr Box& operator=(Box &&other) noexcept = default;
-		~Box() = default;
+		// ~Box() = default;
 		
 		////////////////////////////////////////////////////////////////
 		// Attributes
 		////////////////////////////////////////////////////////////////
-		constexpr const Point_t& low()  const noexcept {return _low;}
-		constexpr const Point_t& high() const noexcept {return _high;}
-		constexpr Point_t center() const noexcept {return T(0.5) * (_low + _high);}
-		constexpr Point_t sidelength() const noexcept {return _high - _low;}
+		constexpr const point_type& low()  const noexcept {return _low;}
+		constexpr const point_type& high() const noexcept {return _high;}
+		constexpr point_type center() const noexcept {return T(0.5) * (_low + _high);}
+		constexpr point_type sidelength() const noexcept {return _high - _low;}
 		constexpr T diameter() const noexcept {return norm2(_high - _low);}
 		constexpr T volume() const noexcept {
 			T vol = 1;
@@ -63,9 +63,9 @@ namespace gutil {
 		
 		/// Get i-th vertex in VTK pixel/voxel order
 		/// Binary encoding: bit i determines whether to use low[i] or high[i]
-		constexpr Point_t voxelvertex(const int idx) const noexcept {
+		constexpr point_type voxelvertex(const int idx) const noexcept {
 			assert(idx >= 0 && idx < (1 << DIM));
-			Point_t vertex;
+			point_type vertex;
 			int p = idx;
 			for (int i = 0; i < DIM; i++) {
 				vertex[i] = (p & 1) ? _high[i] : _low[i];
@@ -76,7 +76,7 @@ namespace gutil {
 
 		/// Get i-th vertex in VTK quad/hexahedron order
 		/// (swaps vertices 2-3 and 6-7 from voxel ordering)
-		constexpr Point_t hexvertex(const int idx) const noexcept requires(DIM==2 or DIM==3) {
+		constexpr point_type hexvertex(const int idx) const noexcept requires(DIM==2 or DIM==3) {
 			switch (idx) {
 				case 2: return voxelvertex(3);
 				case 3: return voxelvertex(2);
@@ -89,12 +89,12 @@ namespace gutil {
 		// Containment and intersection
 		////////////////////////////////////////////////////////////////
 		/// Check if point is in the closed box
-		constexpr bool contains(const Point_t &point) const noexcept {
+		constexpr bool contains(const point_type &point) const noexcept {
 			return _low <= point && point <= _high;
 		}
 		
 		/// Check if point is in the open box
-		constexpr bool contains_strict(const Point_t &point) const noexcept {
+		constexpr bool contains_strict(const point_type &point) const noexcept {
 			return _low < point && point < _high;
 		}
 		
@@ -114,7 +114,7 @@ namespace gutil {
 		}
 
 		/// Find the support point: vertex that maximizes dot(vertex, direction)
-		constexpr Point_t support(const Point_t &direction) const noexcept {
+		constexpr point_type support(const point_type &direction) const noexcept {
 			T maxdot = dot(direction, voxelvertex(0));
 			int maxind = 0;
 
@@ -133,30 +133,30 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		
 		/// Shift box by vector
-		constexpr Box& operator+=(const Point_t &shift) noexcept {
+		constexpr Box& operator+=(const point_type &shift) noexcept {
 			_low += shift;
 			_high += shift;
 			return *this;
 		}
 
-		constexpr Box operator+(const Point_t &shift) const noexcept {
+		constexpr Box operator+(const point_type &shift) const noexcept {
 			return Box(_low + shift, _high + shift);
 		}
 
-		constexpr Box& operator-=(const Point_t &shift) noexcept {
+		constexpr Box& operator-=(const point_type &shift) noexcept {
 			_low -= shift;
 			_high -= shift;
 			return *this;
 		}
 
-		constexpr Box operator-(const Point_t &shift) const noexcept {
+		constexpr Box operator-(const point_type &shift) const noexcept {
 			return Box(_low - shift, _high - shift);
 		}
 
 		/// Scale box relative to its center
 		template<typename U>
 		constexpr Box& operator*=(const U& scale) noexcept {
-			Point_t c = center();
+			point_type c = center();
 			T s = static_cast<T>(scale);
 			_low = c + s * (_low - c);
 			_high = c + s * (_high - c);
@@ -165,7 +165,7 @@ namespace gutil {
 
 		template<typename U>
 		constexpr Box operator*(const U& scale) const noexcept requires(std::is_convertible<U,T>::value) {
-			Point_t c = center();
+			point_type c = center();
 			T s = static_cast<T>(scale);
 			return Box(c + s * (_low - c), c + s * (_high - c));
 		}

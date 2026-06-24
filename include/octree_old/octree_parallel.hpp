@@ -13,8 +13,8 @@
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
-#include "octree/octree_util.hpp"
-#include "octree/thread_queue.hpp"
+#include "octree_old/octree_util.hpp"
+#include "octree_old/thread_queue.hpp"
 
 #ifndef GUTIL_MAX_OCTREE_DEPTH
 	#define GUTIL_MAX_OCTREE_DEPTH 16

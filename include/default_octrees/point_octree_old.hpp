@@ -2,7 +2,7 @@
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
-#include "octree/octree_parallel.hpp"
+#include "octree_old/octree_parallel.hpp"
 
 #include <algorithm>
 #include <array>
@@ -11,7 +11,7 @@
 namespace gutil {
 	///Octree for points in space.
 	template<int dim=3, typename T=double, int n_data=32, typename U=T>
-	class PointOctree : public BasicParallelOctree<
+	class PointOctreeOld : public BasicParallelOctree<
 									Point<dim,T>,
 									true,
 									dim,
@@ -29,8 +29,8 @@ namespace gutil {
 		using typename BaseClass::Box_t;
 
 		//constructors
-		constexpr PointOctree() noexcept : BaseClass() {}
-		constexpr PointOctree(const Box_t &bbox) noexcept : BaseClass(bbox) {}
+		constexpr PointOctreeOld() noexcept : BaseClass() {}
+		constexpr PointOctreeOld(const Box_t &bbox) noexcept : BaseClass(bbox) {}
 
 		//override find closest data
 		template<typename W>
@@ -68,8 +68,8 @@ namespace gutil {
 
 
 	template<int dim, typename T, int n_data, typename U>
-	void PointOctree<dim,T,n_data,U>::_recursive_find_closest_point(
-		const typename PointOctree<dim,T,n_data,U>::BaseClass::Node_t* node,
+	void PointOctreeOld<dim,T,n_data,U>::_recursive_find_closest_point(
+		const typename PointOctreeOld<dim,T,n_data,U>::BaseClass::Node_t* node,
 		const Point<dim,U>& point,
 		size_t& idx,
 		U& dist2) const

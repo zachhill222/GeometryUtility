@@ -3,12 +3,12 @@
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
 #include "geometry/basic_shapes.hpp"
-#include "octree/octree_parallel.hpp"
+#include "octree_old/octree_parallel.hpp"
 
 namespace gutil {
 	///Note that the data should be allowed to be put into multiple leaf nodes
 	template<int N_SIDES, typename T=double, int N_DATA=32>
-	class RegularPolygonOctree : public BasicParallelOctree<RegularPolygon<N_SIDES,T>, false, 2, N_DATA, T>
+	class RegularPolygonOctreeOld : public BasicParallelOctree<RegularPolygon<N_SIDES,T>, false, 2, N_DATA, T>
 	{
 	public:
 		using BaseClass = BasicParallelOctree<RegularPolygon<N_SIDES,T>, false, 2, N_DATA, T>;
@@ -16,8 +16,8 @@ namespace gutil {
 		using typename BaseClass::Box_t;
 
 		//constructors
-		constexpr RegularPolygonOctree() noexcept : BaseClass() {}
-		constexpr RegularPolygonOctree(const Box_t &bbox) noexcept : BaseClass(bbox) {}
+		constexpr RegularPolygonOctreeOld() noexcept : BaseClass() {}
+		constexpr RegularPolygonOctreeOld(const Box_t &bbox) noexcept : BaseClass(bbox) {}
 
 	private:
 		constexpr bool isValid(const Box_t& box, const Data_t& data) const override {

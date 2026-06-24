@@ -13,7 +13,7 @@ static_assert(DIMENSION==2 or DIMENSION==3, "test is enabled for DIMENSION 2 or 
 
 using Scalar_t = gutil::FixedPoint<int32_t>;
 // using Scalar_t = float;
-using Octree_t = gutil::PointOctree<DIMENSION,Scalar_t,128>;
+using Octree_t = gutil::PointOctreeOld<DIMENSION,Scalar_t,128>;
 using Index_t  = gutil::Point<DIMENSION,size_t>;
 using Point_t  = gutil::Point<DIMENSION,Scalar_t>;
 using Box_t    = gutil::Box<DIMENSION,Scalar_t>;

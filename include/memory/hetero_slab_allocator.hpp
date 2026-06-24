@@ -2,6 +2,7 @@
 
 #include "memory/slab_allocator.hpp"
 
+#include <type_traits>
 #include <tuple>
 
 namespace gutil
@@ -17,7 +18,7 @@ namespace gutil
 	struct types_are_unique<> : std::true_type {};
 
 	template<typename T, typename... Ts>
-	struct types_are_unique<T, Ts...> : std::bool_constant<!type_in_pack_v<T,Ts...> && types_are_unique<Ts...>::value> {}
+	struct types_are_unique<T, Ts...> : std::bool_constant<!type_in_pack_v<T,Ts...> && types_are_unique<Ts...>::value> {};
 
 	template<typename... Ts>
 	inline constexpr bool types_are_unique_v = types_are_unique<Ts...>::value;
@@ -54,7 +55,7 @@ namespace gutil
 		}
 
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
-		void destroy(T* p) noexcept(std::is_nothrow_destructable_v<T>) {
+		void destroy(T* p) noexcept(std::is_nothrow_destructible_v<T>) {
 			pool<T>().destroy(p);
 		}
 

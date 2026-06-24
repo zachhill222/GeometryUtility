@@ -8,7 +8,7 @@ DEBUG      = -pg -g -Wall
 
 #redefine for testing optimizations
 OPT        = -O3
-PAR        = -fopenmp
+# PAR        = -fopenmp
 DEBUG      = -DNDEBUG
 
 #final compiler command
@@ -21,11 +21,14 @@ DIM        = -DDIMENSION=2
 DEFINES = ${DIM}
 
 point:
-	${CC} ${INCLUDE} ${DEFINES} point_octree_example.cpp -o point_octree_example
+	${CC} ${INCLUDE} ${DEFINES} point.cpp -o point
+
+point_old:
+	${CC} ${INCLUDE} ${DEFINES} point_octree_example.cpp -o point_old
 
 polygon:
-	${CC} ${INCLUDE} ${DEFINES} polygon_octree_example.cpp -o polygon_octree_example
+	${CC} ${INCLUDE} ${DEFINES} polygon_octree_example.cpp -o polygon
 
 
 clean:
-	rm -f point_octree_example polygon_octree_example *.out
+	rm -f point point_old polygon *.out

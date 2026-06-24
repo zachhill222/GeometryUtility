@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cassert>
 #include <memory>
+#include <type_traits>
 
 namespace gutil
 {
