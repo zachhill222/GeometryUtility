@@ -17,7 +17,7 @@ namespace gutil {
 		Point<DIM,T> _high;
 
 		static constexpr int dim = DIM;
-		static constexpr int n_vertices = std::pow(2,DIM);
+		static constexpr int n_vertices = (1 << DIM);
 		using scalar_type = T;
 		using point_type  = Point<DIM,T>;
 
@@ -39,7 +39,6 @@ namespace gutil {
 		constexpr Box(Box &&other) noexcept = default;
 		constexpr Box& operator=(const Box &other) = default;
 		constexpr Box& operator=(Box &&other) noexcept = default;
-		// ~Box() = default;
 		
 		////////////////////////////////////////////////////////////////
 		// Attributes
@@ -198,7 +197,7 @@ namespace gutil {
 	////////////////////////////////////////////////////////////////
 	template <int DIM, typename T>
 	Box<DIM,T> combine(const Box<DIM,T>& A, const Box<DIM,T>& B) {
-		return {elmin(A.low(),B.low()), elmax(B.low(),B.high())};
+		return {elmin(A.low(),B.low()), elmax(B.high(),B.high())};
 	}
 
 	/// Return intersection of two boxes (undefined if boxes don't intersect)

@@ -128,19 +128,32 @@ namespace gutil
 		//initialize via fill
 		constexpr Point(const T& val) : _data{} {std::fill(_data, _data+DIM, val);}
 
-		//destructor
-		// constexpr ~Point() noexcept {}
-
 		//copy and move assignment
 		constexpr Point& operator=(const Point& other) noexcept = default;
 		constexpr Point& operator=(Point&& other) noexcept = default;
 
 		//element access
-		inline constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
-		inline constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
+		constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
+		constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return _data[idx];}
+
+		constexpr T x() const noexcept requires (DIM>0) {return _data[0];}
+		constexpr T y() const noexcept requires (DIM>1) {return _data[1];}
+		constexpr T z() const noexcept requires (DIM>2) {return _data[2];}
+		constexpr T w() const noexcept requires (DIM>3) {return _data[3];}
+		constexpr T& x() noexcept requires (DIM>0) {return _data[0];}
+		constexpr T& y() noexcept requires (DIM>1) {return _data[1];}
+		constexpr T& z() noexcept requires (DIM>2) {return _data[2];}
+		constexpr T& w() noexcept requires (DIM>3) {return _data[3];}
 
 		//standard container access
-		static constexpr size_t size() {return static_cast<size_t>(DIM);}
+		constexpr size_t size() const {return static_cast<size_t>(DIM);}
+
+		constexpr T*       begin()       noexcept  { return _data; }
+		constexpr const T* begin() const noexcept  { return _data; }
+		constexpr T*       end()         noexcept  { return _data + DIM; }
+		constexpr const T* end()   const noexcept  { return _data + DIM; }
+		constexpr const T* cbegin() const noexcept { return _data; }
+		constexpr const T* cend()   const noexcept { return _data + DIM; }
 
 		//type conversion
 		template<int OTHER_DIM, typename OTHER_T> requires std::is_nothrow_convertible<T,OTHER_T>::value
@@ -381,6 +394,12 @@ namespace gutil
 			return dot(*this,*this);
 		}
 
+		constexpr T norm2() const noexcept
+		{
+			if constexpr ( sizeof(T) == 4 ) {return static_cast<T>(std::sqrt(static_cast<float>(squaredNorm())));}
+			else constexpr {return static_cast<T>(std::sqrt(static_cast<double>(squaredNorm())));}	
+		}
+
 		//accumulators
 		constexpr T prod() const noexcept
 		{
@@ -553,7 +572,7 @@ namespace gutil
 	template<int DIM, typename T>
 	inline T norm2(const Point<DIM,T>& point) noexcept {
 		if constexpr (sizeof(T) == 4) {return T{std::sqrt(static_cast<float>(point.squaredNorm()))};}
-		if constexpr (sizeof(T) == 8) {return T{std::sqrt(static_cast<double>(point.squaredNorm()))};}
+		else {return T{std::sqrt(static_cast<double>(point.squaredNorm()))};}
 	}
 
 	template<int DIM, typename T>
@@ -627,6 +646,16 @@ namespace gutil
 	}
 
 	template<int DIM, typename T>
+	inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& p, const Point<DIM,T>& low, const Point<DIM,T>& high) {
+		Point<DIM,T> result;
+		for (int i=0; i<DIM; ++i) {
+			result[i] = std::clamp(p[i], low[i], high[i]);
+		}
+		return result;
+	}
+
+
+	template<int DIM, typename T>
 	inline constexpr T max(const Point<DIM,T>& point) {return point.max();}
 
 	template<int DIM, typename T>
@@ -655,7 +684,7 @@ namespace gutil
 	/// @tparam U is the type that the arithmetic should be done in
 	/// @tparam T is the output type
 	////////////////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T, typename U, typename W>
+	template<int DIM, typename W, typename U=W, typename T=W>
 	constexpr Point<DIM,T> sorted_sum(const std::vector<Point<DIM,W>>& points) noexcept {
 		if (points.empty()) {return Point<DIM,T>();}
 		
@@ -681,7 +710,7 @@ namespace gutil
 	}
 
 	/// Convenient ways to call the sorted sum.
-	template<int DIM, typename T, typename U, typename W>
+	template<int DIM, typename W, typename U=W, typename T=W>
 	inline constexpr Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,W>> points) noexcept {
 	    return sorted_sum<DIM,T,U,W>(std::vector<Point<DIM,W>>(points.begin(), points.end()));
 	}
