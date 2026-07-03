@@ -14,8 +14,8 @@ namespace gutil
 	{
 		//determine the size and number of slots in each slab
 		//the slab size should be the OS page size
-		static constexpr size_t BYTES_PER_SLAB = BytesPerSlab;
-		static constexpr size_t SLOTS_PER_SLAB = BYTES_PER_SLAB / sizeof(T);
+		static constexpr size_t SLOTS_PER_SLAB = BytesPerSlab / sizeof(T);
+		static constexpr size_t BYTES_PER_SLAB = SLOTS_PER_SLAB * sizeof(T);
 		static_assert(SLOTS_PER_SLAB >=2, "SlabPool: T is too large for the slab size");
 		
 		//single linked list of slab/block storage
@@ -124,6 +124,22 @@ namespace gutil
 			//make sure the other can't release this memory
 			other._slab_head_ = nullptr;
 			other._free_head_ = nullptr;
+		}
+
+		//count the number of slabs
+		size_t n_slabs() const {
+			size_t n = 0;
+			auto head = _slab_head_;
+			while (head) {
+				++n;
+				head = head->next;
+			}
+			return n;
+		}
+
+		//get total memory being reserved
+		size_t bytes_reserved() const noexcept {
+			return BYTES_PER_SLAB * n_slabs();
 		}
 
 		//lifecyle

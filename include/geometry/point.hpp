@@ -105,8 +105,8 @@ namespace gutil
 
 		//essential constructors
 		constexpr Point() noexcept : _data{} {}
-		constexpr Point(const Point& other) noexcept : _data{} {std::copy(other._data, other._data+DIM, this->_data);}
-		constexpr Point(Point&& other) noexcept : _data{} {std::move(other._data, other._data+DIM, this->_data);}
+		constexpr Point(const Point& other) noexcept = default;
+		constexpr Point(Point&& other) noexcept = default;
 
 		//initialize via Point v{1,2,3}
 		template<typename U> requires (std::is_nothrow_convertible<U,T>::value)
@@ -132,17 +132,8 @@ namespace gutil
 		// constexpr ~Point() noexcept {}
 
 		//copy and move assignment
-		constexpr Point& operator=(const Point& other) noexcept
-		{
-			if (this != &other) {std::copy(other._data, other._data+DIM, this->_data);}
-			return *this;
-		}
-
-		constexpr Point& operator=(Point&& other) noexcept
-		{
-			if (this != &other) {std::move(other._data, other._data+DIM, this->_data);}
-			return *this;
-		}
+		constexpr Point& operator=(const Point& other) noexcept = default;
+		constexpr Point& operator=(Point&& other) noexcept = default;
 
 		//element access
 		inline constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return _data[idx];}

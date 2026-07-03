@@ -36,7 +36,12 @@ namespace gutil
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
 		SlabPool<T>& pool() {
 			return std::get<SlabPool<T>>(_pools_);
-		 }
+		}
+
+		template<typename T> requires (type_in_pack_v<T, Ts...>)
+		const SlabPool<T>& pool() const {
+			return std::get<SlabPool<T>>(_pools_);
+		}
 
 		//forward to individual pools
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
@@ -66,6 +71,10 @@ namespace gutil
 
 		void release() noexcept {
 			(pool<Ts>().release(), ...);
+		}
+
+		size_t bytes_reserved() const noexcept {
+			return (pool<Ts>().bytes_reserved() + ...);
 		}
 
 		//lifetime

@@ -21,6 +21,7 @@ namespace gutil {
 		static_assert(std::same_as<value_type, point_type>);
 
 		using BASE::BASE;
+		using BASE::operator=;
 
 		bool intersects_impl(const box_type& box, const value_type& value) const {
 			return box.contains(value);

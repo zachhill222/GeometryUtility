@@ -52,7 +52,7 @@ int main(int argc, char** argv)
     std::cout << "=== PointOctree test  N=" << N << " ===\n\n";
 
     // -----------------------------------------------------------------------
-    // 1. Generate random points
+    // Generate random points
     // -----------------------------------------------------------------------
     std::mt19937                          rng(42);
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
@@ -68,20 +68,21 @@ int main(int argc, char** argv)
     }
 
     // -----------------------------------------------------------------------
-    // 2. Construct the tree
+    // Construct the tree
     // -----------------------------------------------------------------------
     const Box root_bbox({-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f});
     Tree tree(root_bbox);
     tree.reserve(N);
 
     // -----------------------------------------------------------------------
-    // 3. Insert all points — timed
+    // Insert all points — timed
     // -----------------------------------------------------------------------
     Timer t;
-    t.start();
 
     std::vector<size_t> indices;
     indices.reserve(N);
+
+    t.start();
     for (const Point& p : points) {
         indices.push_back(tree.insert(p));
     }
@@ -96,7 +97,63 @@ int main(int argc, char** argv)
     }
 
     // -----------------------------------------------------------------------
-    // 4. contains() — check every point is found
+    // Insert all points via batch (copy) — timed
+    // -----------------------------------------------------------------------
+    {
+        Tree second_tree(root_bbox);
+        second_tree.reserve(N);
+
+        t.start();
+        second_tree.batch_insert(points);
+
+        const double batch_copy_insert_ms = t.elapsed_ms();
+        
+        // Basic sanity: every returned index should be < N and tree size == N
+        // check that all data was inserted, but do not time
+        assert(tree.size() == N && "tree size mismatch after insert");
+        auto N_Missed = N;
+        for (size_t i = 0; i < N; ++i) {
+            if (second_tree.contains(points[i])) {--N_Missed;}
+        }
+
+        print_result("batch_insert (copy)", batch_copy_insert_ms, N);
+        if (N_Missed !=0 ){
+            std::cerr << "ERROR: contains() missed " << N_Missed << " points\n";
+            return 1;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Insert all points via batch (move) — timed
+    // -----------------------------------------------------------------------
+    {
+        Tree second_tree(root_bbox);
+        second_tree.reserve(N);
+
+        auto points_copy = points;
+
+        t.start();
+        second_tree.batch_insert(std::move(points_copy));
+
+        const double batch_move_insert_ms = t.elapsed_ms();
+        
+        // Basic sanity: every returned index should be < N and tree size == N
+        // check that all data was inserted, but do not time
+        assert(tree.size() == N && "tree size mismatch after insert");
+        auto N_Missed = N;
+        for (size_t i = 0; i < N; ++i) {
+            if (second_tree.contains(points[i])) {--N_Missed;}
+        }
+
+        print_result("batch_insert (move)", batch_move_insert_ms, N);
+        if (N_Missed !=0 ){
+            std::cerr << "ERROR: contains() missed " << N_Missed << " points\n";
+            return 1;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // contains() — check every point is found
     // -----------------------------------------------------------------------
     t.start();
     size_t found = 0;
@@ -112,7 +169,7 @@ int main(int argc, char** argv)
     }
 
     // -----------------------------------------------------------------------
-    // 5. find() — check every point is found
+    // find() — check every point is found
     // -----------------------------------------------------------------------
     t.start();
     found = 0;
@@ -128,7 +185,7 @@ int main(int argc, char** argv)
     }
 
     // -----------------------------------------------------------------------
-    // 6. nearest() — find the nearest stored point to each query point
+    // nearest() — find the nearest stored point to each query point
     //    Use freshly generated query points so we don't just look up existing ones
     // -----------------------------------------------------------------------
     std::vector<Point> queries;
@@ -153,7 +210,7 @@ int main(int argc, char** argv)
     }
  
     // -----------------------------------------------------------------------
-    // 7. Verify nearest() correctness on a small random sample
+    // Verify nearest() correctness on a small random sample
     //    Brute-force the answer and compare
     // -----------------------------------------------------------------------
     const size_t VERIFY_N = std::min(N, size_t(1000));
@@ -193,16 +250,17 @@ int main(int argc, char** argv)
 
 
     // -----------------------------------------------------------------------
-    // 8. clear() and re-insert — sanity check
+    // set the bounding box to a larger size
     // -----------------------------------------------------------------------
     t.start();
-    tree.clear();
-    for (const Point& p : points) { tree.insert(p); }
-    const double reinsert_ms = t.elapsed_ms();
-    print_result("clear+reinsert", reinsert_ms, N);
+    tree.set_bbox(2.0 * tree.bbox());
 
+    const double set_bbox_ms = t.elapsed_ms();
     assert(tree.size() == N);
 
+    print_result("set bounding box (double sidelength)", set_bbox_ms, N);
+    
+    // if we got here, we passed all the tests
     std::cout << "\nAll tests passed.\n";
     return 0;
 }

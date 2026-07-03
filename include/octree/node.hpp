@@ -139,6 +139,9 @@ namespace gutil
 		//store the box for this node
 		box_type bbox;
 
+		//track depth
+		uint8_t depth{0};
+
 		//always have a parent (except for the root)
 		InternalNode<Opts>* parent{nullptr};
 
@@ -199,6 +202,7 @@ namespace gutil
 			}
 			return false;
 		}
+		size_t remaining_capacity() const {return MAX_DATA-cursor;}
 
 		//move data into the leaf
 		void insert(const index_type index) {
@@ -273,6 +277,8 @@ namespace gutil
 				}
 
 				leaf_type* leaf = _alloc_.construct(box_type{vertex, center});
+				leaf->depth = this->depth + 1;
+
 				assert((reinterpret_cast<uintptr_t>(leaf) & 0x7) == 0
 				    && "leaf pointer is not 8-byte aligned");
 
