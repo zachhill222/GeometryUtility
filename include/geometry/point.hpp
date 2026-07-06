@@ -397,7 +397,7 @@ namespace gutil
 		constexpr T norm2() const noexcept
 		{
 			if constexpr ( sizeof(T) == 4 ) {return static_cast<T>(std::sqrt(static_cast<float>(squaredNorm())));}
-			else constexpr {return static_cast<T>(std::sqrt(static_cast<double>(squaredNorm())));}	
+			else {return static_cast<T>(std::sqrt(static_cast<double>(squaredNorm())));}	
 		}
 
 		//accumulators

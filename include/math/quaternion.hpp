@@ -49,7 +49,7 @@ namespace gutil {
 		constexpr Quaternion  operator*(const Quaternion& other) const;
 		constexpr Quaternion& operator/=(const Quaternion& other);
 		constexpr Quaternion  operator/(const Quaternion& other) const;
-		bool operator==(const Quaternion& other) const;
+		constexpr bool operator==(const Quaternion& other) const;
 		inline bool operator!=(const Quaternion& other) const { return !(operator==(other));}
 		
 	private:
@@ -96,7 +96,7 @@ namespace gutil {
 
 	template <typename T>
 	constexpr T Quaternion<T>::squaredNorm() const{
-		return _q0*_q0 + gv::squaredNorm(_qv);
+		return _q0*_q0 + gutil::squaredNorm(_qv);
 	}
 
 	template <typename T>
@@ -115,7 +115,7 @@ namespace gutil {
 	template <typename T>
 	constexpr Quaternion<T>& Quaternion<T>::setrotation(const T& theta, const Point<3,T>& axis){
 		_q0 = std::cos(0.5*theta);
-		_qv = std::sin(0.5*theta) * gv::normalize(axis);
+		_qv = std::sin(0.5*theta) * gutil::normalize(axis);
 		return *this;
 	}
 
