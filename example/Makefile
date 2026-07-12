@@ -23,12 +23,5 @@ point:
 point_parallel:
 	${CC} ${INCLUDE} ${DEFINES} point_parallel.cpp -o point_parallel
 
-point_old:
-	${CC} ${INCLUDE} ${DEFINES} point_octree_example.cpp -o point_old
-
-polygon:
-	${CC} ${INCLUDE} ${DEFINES} polygon_octree_example.cpp -o polygon
-
-
 clean:
-	rm -f point point_parallel point_old polygon *.out
+	rm -f point point_parallel*.out

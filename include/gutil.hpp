@@ -24,9 +24,6 @@
 
 #include "algorithms/convex_collision.hpp"
 
-#include "default_octrees/point_octree_old.hpp"
-#include "default_octrees/regular_polygon_octree.hpp"
-
 namespace gutil
 {
 	template<int offset=0>
