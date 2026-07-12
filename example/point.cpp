@@ -64,7 +64,7 @@ int main(int argc, char** argv)
     std::vector<Point> points;
     points.reserve(N);
     for (size_t i = 0; i < N; ++i) {
-        points.push_back({dist(rng), dist(rng), dist(rng)});
+        points.emplace_back(dist(rng), dist(rng), dist(rng));
     }
 
     // -----------------------------------------------------------------------
@@ -191,7 +191,7 @@ int main(int argc, char** argv)
     std::vector<Point> queries;
     queries.reserve(N);
     for (size_t i = 0; i < N; ++i) {
-        queries.push_back({dist(rng), dist(rng), dist(rng)});
+        queries.emplace_back(dist(rng), dist(rng), dist(rng));
     }
  
     t.start();
