@@ -33,7 +33,7 @@ namespace gutil {
 		//// ROTATIONS
 		constexpr Quaternion conj() const;
 		constexpr Quaternion inv() const;
-		constexpr T squaredNorm() const;
+		constexpr T squared_norm() const;
 		constexpr T norm() const;
 		constexpr Quaternion& normalize(); //normalize this quaternion to a rotation quaternion
 		constexpr Quaternion& setrotation(const T& theta, const Point<3,T>& axis);
@@ -90,18 +90,18 @@ namespace gutil {
 
 	template <typename T>
 	constexpr Quaternion<T> Quaternion<T>::inv() const{
-		T C = 1.0/squaredNorm();
+		T C = 1.0/squared_norm();
 		return Quaternion(C*_q0, (-C)*_qv);
 	}
 
 	template <typename T>
-	constexpr T Quaternion<T>::squaredNorm() const{
-		return _q0*_q0 + gutil::squaredNorm(_qv);
+	constexpr T Quaternion<T>::squared_norm() const{
+		return _q0*_q0 + gutil::squared_norm(_qv);
 	}
 
 	template <typename T>
 	constexpr T Quaternion<T>::norm() const{
-		return std::sqrt(squaredNorm());
+		return std::sqrt(squared_norm());
 	}
 
 	template <typename T>
@@ -115,7 +115,7 @@ namespace gutil {
 	template <typename T>
 	constexpr Quaternion<T>& Quaternion<T>::setrotation(const T& theta, const Point<3,T>& axis){
 		_q0 = std::cos(0.5*theta);
-		_qv = std::sin(0.5*theta) * gutil::normalize(axis);
+		_qv = std::sin(0.5*theta) * gutil::normalized(axis);
 		return *this;
 	}
 
@@ -128,7 +128,7 @@ namespace gutil {
 
 	template <typename T>
 	constexpr bool Quaternion<T>::is_rotation() const {
-		return gutil::abs(squaredNorm() - T{1}) <= T{1e-12};
+		return gutil::abs(squared_norm() - T{1}) <= T{1e-12};
 	}
 
 	///// ARITHMETIC

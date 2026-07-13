@@ -1,7 +1,8 @@
 #pragma once
 
+#include "math/gutilmath.hpp"
+
 #include <algorithm>
-#include <cmath>
 #include <initializer_list>
 #include <concepts>
 #include <vector>
@@ -11,55 +12,13 @@
 #include <numeric>
 
 
-//////////////////////////////////////////////////////
-/// Macro to disable floating point associativity for functions
-/// that require exact arithmetic order.
-//////////////////////////////////////////////////////
-#if defined(__GNUC__)
-	//linux (gcc) compiler
-	#define GUTIL_NO_ASSOC_MATH_START _Pragma("GCC push_options") _Pragma("GCC optimize(\"no-associative-math\")")
-	#define GUTIL_NO_ASSOC_MATH_END _Pragma("GCC pop_options")
-#elif defined(_MSC_VER)
-	//microsoft compiler
-	#define GUTIL_NO_ASSOC_MATH_START __pragma(float_control(precise, on, push))
-	#define GUTIL_NO_ASSOC_MATH_END __pragma(float_control(pop))
-#else
-	//unkown compiler
-	#define GUTIL_NO_ASSOC_MATH_START
-	#define GUTIL_NO_ASSOC_MATH_END
-#endif
+
 
 
 
 
 namespace gutil
 {
-	///////////////////////////////////////////////////////////
-	/// Concept to ensure that a type is some form of scalar
-	/// that emulates the real line and will work with the Point class.
-	///////////////////////////////////////////////////////////
-	template<typename T>
-	concept IsScalar = requires(T a, T b) {
-		T{0};
-		T{1};
-		{ a + b } -> std::same_as<T>;
-		{ a - b } -> std::same_as<T>;
-		{ a * b } -> std::same_as<T>;
-		{ a / b } -> std::same_as<T>;
-		{ -a    } -> std::same_as<T>;
-		{ a+=b  } -> std::same_as<T&>;
-		{ a-=b  } -> std::same_as<T&>;
-		{ a*=b  } -> std::same_as<T&>;
-		{ a/=b  } -> std::same_as<T&>;
-		{ a==b  } -> std::same_as<bool>;
-		{ a<b   } -> std::same_as<bool>;
-	};
-
-
-
-	template<int DIM, IsScalar T> requires (DIM>0)
-	struct Point;
-
 	///////////////////////////////////////////////////////////
 	/// Concept to ensure that a type is some form of point
 	/// defined in the class below
@@ -71,36 +30,6 @@ namespace gutil
 	} && IsScalar<typename T::value_type> && std::same_as<T, Point<T::dim, typename T::value_type>>;
 
 	
-	//////////////////////////////////////////////////////////
-	/// Pre define any special operations that are constexpr and used in the class
-	/// but should be defined outside the class.
-	//////////////////////////////////////////////////////////
-	template<int DIM, typename T> requires (DIM>0)
-	[[nodiscard]] inline T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		T result{left[0]*right[0]};
-		for (int i=1; i<DIM; i++) {
-			if constexpr (std::floating_point<T>) {
-				//use explicit fused multiply add when possible
-				result = std::fma(left[i], right[i], result);
-			}
-			else {
-				//this might be able to be fused with compiler options
-				result += left[i]*right[i];
-			}
-		}
-		return result;
-	}
-
-	template<typename T>
-	[[nodiscard]] inline constexpr Point<3,T> cross(const Point<3,T>& left, const Point<3,T>& right) noexcept {
-		//*this x other
-		Point<3,T> result;
-		result[0] = left[1]*right[2] - left[2]*right[1];
-		result[1] = left[2]*right[0] - left[0]*right[2];
-		result[2] = left[0]*right[1] - left[1]*right[0];
-		return result;
-	}
-
 	//////////////////////////////////////////////////////////
 	/// A class for cartesian points in space
 	///
@@ -124,7 +53,7 @@ namespace gutil
 		// note that the default constructor does not initialize data.
 		// it has indeterminant values and all values should be assigned before reading.
 		// use Zeros() to have data be initialized to all zeros.
-		constexpr Point() noexcept {}
+		Point() noexcept {}
 		constexpr Point(const Point& other) noexcept = default;
 		constexpr Point(Point&& other) noexcept = default;
 
@@ -180,113 +109,114 @@ namespace gutil
 			return result;
 		}
 
-		//asymetric/in-place element-wise math operations
-		constexpr Point& operator+=(const Point& other) noexcept {
+		//////////////////////////////////////////////////////////
+		/// IN-PLACE BINARY OPERATIONS
+		//////////////////////////////////////////////////////////
+		Point& operator+=(const Point& other) noexcept {
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] += other.data[i];}
 			return *this;
 		}
 
-		constexpr Point& operator-=(const Point& other) noexcept {
+		Point& operator-=(const Point& other) noexcept {
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] -= other.data[i];}
 			return *this;
 		}
 
-		constexpr Point& operator*=(const Point& other) noexcept {
+		Point& operator*=(const Point& other) noexcept {
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] *= other.data[i];}
 			return *this;
 		}
 
-		constexpr Point& operator/=(const Point& other) noexcept {
+		Point& operator/=(const Point& other) noexcept {
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] /= other.data[i];}
 			return *this;
 		}
 
-		constexpr Point& operator%=(const Point& other) noexcept requires(std::integral<T>) {
+		Point& operator%=(const Point& other) noexcept requires(std::integral<T>) {
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] %= other.data[i];}
 			return *this;
 		}
 
 		template<typename U> requires std::is_nothrow_convertible<U,T>::value
-		constexpr Point& operator*=(const U scalar) noexcept {
+		Point& operator*=(const U scalar) noexcept {
 			const T s = static_cast<T>(scalar);
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] *= s;}
 			return *this;
 		}
 
 		template<typename U> requires std::is_nothrow_convertible<U,T>::value
-		constexpr Point& operator/=(const U scalar) noexcept {
-			const T s = static_cast<T>(scalar);
-			assert(s!=T{0} && "Point::operator/=: divide by zero");
-			for (int i=0; i<DIM; i++) {data[i] /= s;}
+		Point& operator/=(const U scalar) noexcept {
+			assert(scalar!=U{0} && "Point::operator/=: divide by zero");
+			const T s_inv = static_cast<T>(U{1}/scalar);
+			
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
+			for (int i=0; i<DIM; i++) {data[i] *= s_inv;}
 			return *this;
 		}
 
-		//negation
-		[[nodiscard]] constexpr Point operator-() const noexcept {
+		//////////////////////////////////////////////////////////
+		/// UNARY OPERATIONS
+		//////////////////////////////////////////////////////////
+		[[nodiscard]] Point operator-() const noexcept {
 			Point result;
+			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {result.data[i] = -data[i];}
 			return result;
 		}
 
-		//norms
-		[[nodiscard]] constexpr T norminfty() const noexcept {
-			using std::abs;
-			T result{abs(data[0])};
-			for (int i=1; i<DIM; i++) {
-				T val = abs(data[i]);
-				result = val > result ? val : result;
-			}
-			return result;
+		Point& normalize() {
+			*this = gutil::normalized(*this);
+			return *this;
 		}
 
-		[[nodiscard]] constexpr T norm1() const noexcept {
-			using std::abs;
-			T result{abs(data[0])};
-			for (int i=1; i<DIM; i++) {result += abs(data[i]);}
-			return result;
+		Point normalized() const {
+			return gutil::normalized(*this);
 		}
 
-		[[nodiscard]] T squaredNorm() const noexcept {
-			return gutil::dot(*this,*this);
+		//////////////////////////////////////////////////////////
+		/// REDUCTIONS AND NORM OPERATIONS
+		//////////////////////////////////////////////////////////
+		[[nodiscard]] T norminfty() const noexcept {
+			return gutil::norminfty(*this);
+		}
+
+		[[nodiscard]] T norm1() const noexcept {
+			return gutil::norm1(*this);
+		}
+
+		[[nodiscard]] T squared_norm() const noexcept {
+			return gutil::squared_norm(*this);
 		}
 
 		[[nodiscard]] T norm2() const noexcept {
-			using std::sqrt;
-			return static_cast<T>(sqrt(squaredNorm()));
+			return gutil::norm2(*this);
 		}
 
-		//accumulators
-		[[nodiscard]] constexpr T prod() const noexcept {
-			T result{data[0]};
-			for (int i=1; i<DIM; i++) {result *= data[i];}
-			return result;
+		[[nodiscard]] T prod() const noexcept {
+			return gutil::product_reduce(*this);
 		}
 
-		[[nodiscard]] constexpr T sum() const noexcept {
-			T result{data[0]};
-			for (int i=1; i<DIM; i++) {result += data[i];}
-			return result;
+		[[nodiscard]] T sum() const noexcept {
+			return gutil::sum_reduce(*this);
 		}
 
-		[[nodiscard]] constexpr T max() const noexcept {
-			T result{data[0]};
-			for (int i=1; i<DIM; i++) {
-				result = data[i] > result ? data[i] : result;
-			}
-
-			return result;
+		[[nodiscard]] T max() const noexcept {
+			return gutil::max_reduce(*this);
 		}
 
-		[[nodiscard]] constexpr T min() const noexcept {
-			T result{data[0]};
-			for (int i=1; i<DIM; i++) {
-				result = data[i] < result ? data[i] : result;
-			}
-
-			return result;
+		[[nodiscard]] T min() const noexcept {
+			return gutil::min_reduce(*this);
 		}
 
-		//standard vector operations
+		//////////////////////////////////////////////////////////
+		/// BINARY VECTOR OPERATIONS
+		//////////////////////////////////////////////////////////
 		[[nodiscard]] T dot(const Point& other) const noexcept {
 			return gutil::dot(*this, other);
 		}
@@ -297,6 +227,7 @@ namespace gutil
 
 		T data[DIM];
 	};
+
 
 	///////////////////////////////////////////////////////////////////
 	/// Ensure that the concept 'IsPointLike' is valid
@@ -351,179 +282,66 @@ namespace gutil
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
-	//////////////////////// ARITHMETIC (COMPONENT-WISE) ////////////////////////
+	//////////////////////// STANDARD BINARY OPERATIONS /////////////////////////
 	/////////////////////////////////////////////////////////////////////////////
 	template<int DIM, typename T>
-	[[nodiscard]] constexpr Point<DIM,T> operator+(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator+(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result{left};
 		return result+=right;
 	}
 
 	template<int DIM, typename T>
-	[[nodiscard]] constexpr Point<DIM,T> operator-(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator-(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result{left};
 		return result-=right;
 	}
 
 	template<int DIM, typename T>
-	[[nodiscard]] constexpr Point<DIM,T> operator*(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator*(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result{left};
 		return result*=right;
 	}
 
 	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] constexpr Point<DIM,T> operator*(const U left, const Point<DIM,T>& right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator*(const U left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result{right};
 		return result*=static_cast<T>(left);
 	}
 
 	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] constexpr Point<DIM,T> operator*(const Point<DIM,T>& left, const U right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator*(const Point<DIM,T>& left, const U right) noexcept {
 		Point<DIM,T> result{left};
 		return result*=static_cast<T>(right);
 	}
 
 	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] constexpr Point<DIM,T> operator/(const Point<DIM,T>& left, const U right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator/(const Point<DIM,T>& left, const U right) noexcept {
 		Point<DIM,T> result{left};
 		return result/=static_cast<T>(right);
 	}
 
 	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] constexpr Point<DIM,T> operator/(const U left, const Point<DIM,T>& right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator/(const U left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result = Point<DIM,T>::Filled(static_cast<T>(left));
 		return result/=right;
 	}
 
 	template<int DIM, typename T>
-	[[nodiscard]] constexpr Point<DIM,T> operator/(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+	[[nodiscard]] Point<DIM,T> operator/(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result{left};
 		return result/=right;
 	}
 
 	template<int DIM, typename T> requires std::integral<T>
-	[[nodiscard]] constexpr Point<DIM,T> operator%(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept{
+	[[nodiscard]] Point<DIM,T> operator%(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept{
 		Point<DIM,T> result{left};
 		return result%=right;
 	}
 
-	///////////////////////////////////////////////////////////////////////////////
-	//////////////////////// TRADITIONAL VECTOR OPERATIONS ////////////////////////
-	///////////////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T>
-	[[nodiscard]] inline T squaredNorm(const Point<DIM,T>& point) noexcept {
-		return gutil::dot(point,point);
-	}
 
-	template<int DIM, typename T>
-	[[nodiscard]] inline T norm2(const Point<DIM,T>& point) noexcept {
-		using std::sqrt;
-		return static_cast<T>(sqrt(squaredNorm(point)));
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr T norm1(const Point<DIM,T>& point) noexcept {
-		return point.norm1();
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr T norminfty(const Point<DIM,T>& point) noexcept {
-		return point.norminfty();
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] Point<DIM,T> normalize(const Point<DIM,T>& point) noexcept {
-		T scale{norm2(point)};
-		assert(scale!=T{0} && "normalize: zero-length vector");
-		return point/scale;
-	}
-
-	//////////////////////////////////////////////////////////////////////////
-	//////////////////////// OTHER UTILITY OPERATIONS ////////////////////////
-	//////////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr Point<DIM,T> abs(const Point<DIM,T>& point) noexcept {
-		using std::abs;
-		Point<DIM,T> result;
-		for (int i=0; i<DIM; i++) {result[i] = abs(point[i]);}
-		return result;
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr Point<DIM,T> elmax(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		using std::max;
-		Point<DIM,T> result;
-		for (int i=0; i<DIM; i++) {result[i] = max(left[i], right[i]);}
-		return result;
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr Point<DIM,T> elmax(std::span<const Point<DIM,T>> container) noexcept {
-		assert(container.size()>0);
-
-		Point<DIM,T> result = container[0];
-		for (size_t i=1; i<container.size(); ++i) {
-			result = elmax(result, container[i]);
-		}
-
-		return result;
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr Point<DIM,T> elmin(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		using std::min;
-		Point<DIM,T> result;
-		for (int i=0; i<DIM; i++) {result[i] = min(left[i], right[i]);}
-		return result;
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr Point<DIM,T> elmin(std::span<const Point<DIM,T>> container) noexcept {
-		assert(container.size()>0);
-
-		Point<DIM,T> result = container[0];
-		for (size_t i=1; i<container.size(); ++i) {
-			result = elmin(result, container[i]);
-		}
-
-		return result;
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& p, const Point<DIM,T>& low, const Point<DIM,T>& high) noexcept {
-		using std::clamp;
-		Point<DIM,T> result;
-		for (int i=0; i<DIM; ++i) {
-			result[i] = clamp(p[i], low[i], high[i]);
-		}
-		return result;
-	}
-
-	template<int DIM, typename T, typename U=T> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] inline constexpr Point<DIM,T> lerp(const Point<DIM,T>& a, const Point<DIM,T>& b, const U t) noexcept {
-		return a + static_cast<T>(t) * (b - a);
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr T max(const Point<DIM,T>& point) noexcept {
-		return point.max();
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr T min(const Point<DIM,T>& point) noexcept {
-		return point.min();
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr T sum(const Point<DIM,T>& point) noexcept {
-		return point.sum();
-	}
-
-	template<int DIM, typename T>
-	[[nodiscard]] inline constexpr T prod(const Point<DIM,T>& point) noexcept {
-		return point.prod();
-	}
-
+	/////////////////////////////////////////////////////////////////////////////
+	//////////////////////////// UTILITY OPERATIONS /////////////////////////////
+	/////////////////////////////////////////////////////////////////////////////
 	template<int DIM, typename T>
 	std::ostream& operator<<(std::ostream& os, const Point<DIM,T>& point) {
 		for (int i = 0; i < DIM-1; i++) {os << point[i] << " ";}
@@ -531,6 +349,9 @@ namespace gutil
 		return os;
 	}
 
+	/////////////////////////////////////////////////////////////////////////////
+	////////////////////// CAREFUL FLOATING POINT METHODS ///////////////////////
+	/////////////////////////////////////////////////////////////////////////////
 
 	////////////////////////////////////////////////////////////////////////////////
 	/// Sum the points by pre-sorting each component and summing from least to greatest.
@@ -556,9 +377,7 @@ namespace gutil
 			}
 
 			std::sort(component.begin(), component.end(), 
-				[](U a, U b) {
-					using std::abs;
-					return abs(a) < abs(b);});
+				[](U a, U b) {return gutil::abs(a) < gutil::abs(b);});
 
 			result[i] = static_cast<T>(std::accumulate(component.begin(), component.end(), U{0}));
 		}
@@ -574,7 +393,7 @@ namespace gutil
 
 
 	////////////////////////////////////////////////////////////////////////////////
-	/// Sum the points using Kahan or 2sum to reduce floating point errors (not pre-sorted)
+	/// Sum the points using Kahan to reduce floating point errors (not pre-sorted)
 	///
 	/// @param points A span of points to add
 	///
@@ -590,8 +409,8 @@ namespace gutil
 		Point<DIM,U> c      = Point<DIM,U>::Zeros();	//compensation
 		Point<DIM,U> y,t;								//intermediates
 
-		for (size_t i=0; i<points.size(); ++i) {
-			y = static_cast<Point<DIM,U>>(points[i]) - c;
+		for (const Point<DIM,T>& p : points) {
+			y = static_cast<Point<DIM,U>>(p) - c;
 			t = result + y;
 			c = (t - result) - y;
 			result = t;
@@ -599,21 +418,10 @@ namespace gutil
 
 		return static_cast<Point<DIM,T>>(result);
 	}
-	GUTIL_NO_ASSOC_MATH_START
+	GUTIL_NO_ASSOC_MATH_END
 
 
 
-	/// In-place y += a*x (axpy in BLAS)
-	template<int DIM, typename T>
-	void axpy(T a, const Point<DIM,T>& x, Point<DIM,T>& y) noexcept {
-		for (int i=0; i<DIM; ++i) {
-			if constexpr (std::floating_point<T>) {
-				y[i] = std::fma(a, x[i], y[i]);
-			}
-			else {
-				y[i] += a * x[i];
-			}
-		}
-	}
+	
 
 }

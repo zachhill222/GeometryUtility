@@ -1,5 +1,6 @@
 #pragma once
 
+#include "math/gutilmath.hpp"
 #include "geometry/point.hpp"
 
 #include <string>
@@ -11,27 +12,27 @@
 #include <type_traits>
 
 namespace gutil {
-	template<int DIM=3, typename T=double>
+	template<int DIM=3, IsScalar T=double> requires(DIM>0)
 	struct Box {
-		Point<DIM,T> _low;
-		Point<DIM,T> _high;
-
 		static constexpr int dim = DIM;
 		static constexpr int n_vertices = (1 << DIM);
 		using scalar_type = T;
 		using point_type  = Point<DIM,T>;
+
+		point_type low;
+		point_type high;
 
 		////////////////////////////////////////////////////////////////
 		// Constructors
 		////////////////////////////////////////////////////////////////
 		
 		// Default constructor: unit box centered at origin
-		constexpr Box() noexcept : _low(point_type(-1.0)), _high(point_type(1.0)) {}
+		constexpr Box() noexcept : low(point_type::Filled(-1.0)), high(point_type::Filled(1.0)) {}
 
 		// Constructor from two points (automatically orders them)
 		constexpr Box(const point_type &vertex1, const point_type &vertex2) noexcept : 
-			_low(elmin(vertex1, vertex2)), _high(elmax(vertex1, vertex2)) {
-			assert(_low <= _high);
+			low(elmin(vertex1, vertex2)), high(elmax(vertex1, vertex2)) {
+			assert(low <= high);
 		}
 
 		//use default copy and move constructors and assignment
@@ -43,15 +44,13 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		// Attributes
 		////////////////////////////////////////////////////////////////
-		constexpr const point_type& low()  const noexcept {return _low;}
-		constexpr const point_type& high() const noexcept {return _high;}
-		constexpr point_type center() const noexcept {return T(0.5) * (_low + _high);}
-		constexpr point_type sidelength() const noexcept {return _high - _low;}
-		constexpr T diameter() const noexcept {return norm2(_high - _low);}
+		constexpr point_type center() const noexcept {return T(0.5) * (low + high);}
+		constexpr point_type sidelength() const noexcept {return high - low;}
+		T diameter() const noexcept {return norm2(high - low);}
 		constexpr T volume() const noexcept {
 			T vol = 1;
 			for (int i = 0; i < DIM; i++) {
-				vol *= (_high[i] - _low[i]);
+				vol *= (high[i] - low[i]);
 			}
 			return vol;
 		}
@@ -67,7 +66,7 @@ namespace gutil {
 			point_type vertex;
 			int p = idx;
 			for (int i = 0; i < DIM; i++) {
-				vertex[i] = (p & 1) ? _high[i] : _low[i];
+				vertex[i] = (p & 1) ? high[i] : low[i];
 				p >>= 1;
 			}
 			return vertex;
@@ -89,23 +88,23 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		/// Check if point is in the closed box
 		constexpr bool contains(const point_type &point) const noexcept {
-			return _low <= point && point <= _high;
+			return low <= point && point <= high;
 		}
 		
 		/// Check if point is in the open box
 		constexpr bool contains_strict(const point_type &point) const noexcept {
-			return _low < point && point < _high;
+			return low < point && point < high;
 		}
 		
 		/// Check if this box contains the other box
 		constexpr bool contains(const Box<DIM,T> &other) const noexcept {
-			return _low <= other._low && other._high <= _high;
+			return low <= other.low && other.high <= high;
 		}
 		
 		/// Check if this box intersects the other box (check projection onto each axis)
 		constexpr bool intersects(const Box<DIM,T> &other) const noexcept {
 			for (int i = 0; i < DIM; i++) {
-				if (_high[i] < other._low[i] || other._high[i] < _low[i]) {
+				if (high[i] < other.low[i] || other.high[i] < low[i]) {
 					return false;
 				}
 			}
@@ -114,17 +113,11 @@ namespace gutil {
 
 		/// Find the support point: vertex that maximizes dot(vertex, direction)
 		constexpr point_type support(const point_type &direction) const noexcept {
-			T maxdot = dot(direction, voxelvertex(0));
-			int maxind = 0;
-
-			for (int i = 1; i < (1 << DIM); i++) {
-				T tempdot = dot(direction, voxelvertex(i));
-				if (tempdot > maxdot) {
-					maxdot = tempdot;
-					maxind = i;
-				}
+			point_type result{low};
+			for (int i=0; i<DIM; ++i) {
+				if (direction[i] < T{0}) {result[i] = high[i];}
 			}
-			return voxelvertex(maxind);
+			return result;
 		}
 
 		////////////////////////////////////////////////////////////////
@@ -133,23 +126,23 @@ namespace gutil {
 		
 		/// Shift box by vector
 		constexpr Box& operator+=(const point_type &shift) noexcept {
-			_low += shift;
-			_high += shift;
+			low += shift;
+			high += shift;
 			return *this;
 		}
 
 		constexpr Box operator+(const point_type &shift) const noexcept {
-			return Box(_low + shift, _high + shift);
+			return Box(low + shift, high + shift);
 		}
 
 		constexpr Box& operator-=(const point_type &shift) noexcept {
-			_low -= shift;
-			_high -= shift;
+			low -= shift;
+			high -= shift;
 			return *this;
 		}
 
 		constexpr Box operator-(const point_type &shift) const noexcept {
-			return Box(_low - shift, _high - shift);
+			return Box(low - shift, high - shift);
 		}
 
 		/// Scale box relative to its center
@@ -157,8 +150,8 @@ namespace gutil {
 		constexpr Box& operator*=(const U& scale) noexcept {
 			point_type c = center();
 			T s = static_cast<T>(scale);
-			_low = c + s * (_low - c);
-			_high = c + s * (_high - c);
+			low = c + s * (low - c);
+			high = c + s * (high - c);
 			return *this;
 		}
 
@@ -166,7 +159,7 @@ namespace gutil {
 		constexpr Box operator*(const U& scale) const noexcept requires(std::is_convertible<U,T>::value) {
 			point_type c = center();
 			T s = static_cast<T>(scale);
-			return Box(c + s * (_low - c), c + s * (_high - c));
+			return Box(c + s * (low - c), c + s * (high - c));
 		}
 
 		template<typename U>
@@ -184,7 +177,7 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		
 		constexpr bool operator==(const Box<DIM,T> &other) const {
-			return _low == other._low && _high == other._high;
+			return low == other.low && high == other.high;
 		}
 
 		constexpr bool operator!=(const Box<DIM,T> &other) const {
@@ -197,14 +190,14 @@ namespace gutil {
 	////////////////////////////////////////////////////////////////
 	template <int DIM, typename T>
 	Box<DIM,T> combine(const Box<DIM,T>& A, const Box<DIM,T>& B) {
-		return {elmin(A.low(),B.low()), elmax(B.high(),B.high())};
+		return {elmin(A.low,B.low), elmax(A.high,B.high)};
 	}
 
 	/// Return intersection of two boxes (undefined if boxes don't intersect)
 	template <int DIM, typename T>
 	Box<DIM,T> intersection(const Box<DIM,T>& A, const Box<DIM,T>& B) {
 		assert(A.intersects(B));
-		return Box(elmax(A.low(), B.low()), elmin(A.high(), B.high()));
+		return Box(elmax(A.low, B.low), elmin(A.high, B.high));
 	}
 
 
@@ -222,11 +215,11 @@ namespace gutil {
 		// Compute distance to closest point on box surface
 		T dist_sq = 0;
 		for (int i=0; i<DIM; i++) {
-			if (point[i] < box.low()[i]) {
-				T diff = box.low()[i] - point[i];
+			if (point[i] < box.low[i]) {
+				T diff = box.low[i] - point[i];
 				dist_sq += diff * diff;
-			} else if (point[i] > box.high()[i]) {
-				T diff = point[i] - box.high()[i];
+			} else if (point[i] > box.high[i]) {
+				T diff = point[i] - box.high[i];
 				dist_sq += diff * diff;
 			} //no contribution in this axis if the point is in the box interval
 		}
@@ -240,6 +233,6 @@ namespace gutil {
 
 	template<int DIM, typename T>
 	std::ostream& operator<<(std::ostream& os, const Box<DIM,T>& box) {
-		return os << "(" << box.low() << ") to (" << box.high() << ")";
+		return os << "(" << box.low << ") to (" << box.high << ")";
 	}
 }

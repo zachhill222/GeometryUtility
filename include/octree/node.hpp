@@ -150,8 +150,8 @@ namespace gutil
 			assert(n<Opts::N_CHILDREN);
 
 			//the bits of the child number encode the high/low side of the corresponding axis
-			const point_type low = bbox.low();
-			const point_type high = bbox.high();
+			const point_type& low = bbox.low;
+			const point_type& high = bbox.high;
 			const point_type center = low + scalar_type{0.5}*(high-low);
 			point_type vertex = low;
 			for (size_t ax=0; ax<Opts::DIM; ++ax) {
@@ -261,8 +261,8 @@ namespace gutil
 		//construct child nodes as leafs given an allocator
 		template<typename Allocator>
 		void construct_child_leafs(Allocator& _alloc_) {
-			const point_type low = bbox.low();
-			const point_type high = bbox.high();
+			const point_type& low = bbox.low;
+			const point_type& high = bbox.high;
 			const point_type center = low + scalar_type{0.5}*(high-low);
 
 			using leaf_type = LeafNode<Opts>;

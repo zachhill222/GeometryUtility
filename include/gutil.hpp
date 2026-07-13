@@ -9,10 +9,7 @@
 #include "octree/octree_base.hpp"
 #include "octree/point_octree.hpp"
 
-#include "octree_old/octree_util.hpp"
-#include "octree_old/thread_queue.hpp"
-#include "octree_old/octree_parallel.hpp"
-
+#include "math/gutilmath.hpp"
 #include "math/fixed_point.hpp"
 #include "math/float_manipulation.hpp"
 #include "math/matrix.hpp"

@@ -28,7 +28,7 @@ namespace gutil {
 		}
 
 		scalar_type distance_squared_impl(const point_type& point, const value_type& value) const {
-			return squaredNorm(point-value);
+			return gutil::squared_norm(point-value);
 		}
 	};
 }
