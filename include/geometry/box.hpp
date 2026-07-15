@@ -10,50 +10,56 @@
 #include <cassert>
 #include <algorithm>
 #include <type_traits>
+#include <limits>
 
 namespace gutil {
-	template<int DIM=3, IsScalar T=double> requires(DIM>0)
+	template<typename T>
+	concept IsBox = GutilGeometryObject<T> && std::same_as<T, Box<T::DIMENSION, typename T::scalar_type>>;
+
+	template<int DIM, IsScalar T> requires(DIM>0)
 	struct Box {
-		static constexpr int dim = DIM;
-		static constexpr int n_vertices = (1 << DIM);
+		////////////////////////////////////////////////////////////////
+		// Data and aliases
+		////////////////////////////////////////////////////////////////
 		using scalar_type = T;
 		using point_type  = Point<DIM,T>;
 
 		point_type low;
 		point_type high;
 
-		////////////////////////////////////////////////////////////////
-		// Constructors
-		////////////////////////////////////////////////////////////////
-		
-		// Default constructor: unit box centered at origin
-		constexpr Box() noexcept : low(point_type::Filled(-1.0)), high(point_type::Filled(1.0)) {}
+		static constexpr int DIMENSION = DIM;
+		static constexpr int N_VERTICES = (1 << DIM);
 
-		// Constructor from two points (automatically orders them)
-		constexpr Box(const point_type &vertex1, const point_type &vertex2) noexcept : 
-			low(elmin(vertex1, vertex2)), high(elmax(vertex1, vertex2)) {
-			assert(low <= high);
-		}
-
-		//use default copy and move constructors and assignment
+		////////////////////////////////////////////////////////////////
+		// Constructors and move/copy
+		////////////////////////////////////////////////////////////////
+		constexpr Box() noexcept {} //note low and high are not initialized
 		constexpr Box(const Box &other) noexcept = default;
 		constexpr Box(Box &&other) noexcept = default;
 		constexpr Box& operator=(const Box &other) = default;
 		constexpr Box& operator=(Box &&other) noexcept = default;
 		
+		// Constructor from two points (automatically orders them)
+		constexpr Box(const point_type& vertex1, const point_type& vertex2) noexcept : 
+			low{gutil::elmin(vertex1, vertex2)}, 
+			high{gutil::elmax(vertex1, vertex2)} {}
+
+		template<IsScalar U> requires (std::is_nothrow_convertible_v<U,T>)
+		explicit constexpr Box(U lo, U hi) noexcept :
+			low{point_type::Filled(static_cast<T>(lo))}, 
+			high{point_type::Filled(static_cast<T>(hi))} {assert(lo<=hi);}
+
+
 		////////////////////////////////////////////////////////////////
 		// Attributes
 		////////////////////////////////////////////////////////////////
-		constexpr point_type center() const noexcept {return T(0.5) * (low + high);}
-		constexpr point_type sidelength() const noexcept {return high - low;}
-		T diameter() const noexcept {return norm2(high - low);}
-		constexpr T volume() const noexcept {
-			T vol = 1;
-			for (int i = 0; i < DIM; i++) {
-				vol *= (high[i] - low[i]);
-			}
-			return vol;
+		[[nodiscard]] constexpr point_type center() const noexcept {
+			if constexpr (IsReal<T>) {return low + T{0.5}*(high-low);}
+			else {return (high-low)/T{2};}
 		}
+		[[nodiscard]] constexpr point_type sidelength() const noexcept {return high - low;}
+		[[nodiscard]] T diameter() const noexcept requires(IsReal<T>) {return gutil::distance(high,low);}
+		[[nodiscard]] constexpr T volume() const noexcept {return gutil::product_reduce(high-low);}
 
 		////////////////////////////////////////////////////////////////
 		// Vertex access
@@ -61,7 +67,7 @@ namespace gutil {
 		
 		/// Get i-th vertex in VTK pixel/voxel order
 		/// Binary encoding: bit i determines whether to use low[i] or high[i]
-		constexpr point_type voxelvertex(const int idx) const noexcept {
+		[[nodiscard]] constexpr point_type voxelvertex(const int idx) const noexcept {
 			assert(idx >= 0 && idx < (1 << DIM));
 			point_type vertex;
 			int p = idx;
@@ -74,7 +80,7 @@ namespace gutil {
 
 		/// Get i-th vertex in VTK quad/hexahedron order
 		/// (swaps vertices 2-3 and 6-7 from voxel ordering)
-		constexpr point_type hexvertex(const int idx) const noexcept requires(DIM==2 or DIM==3) {
+		[[nodiscard]] constexpr point_type hexvertex(const int idx) const noexcept requires(DIM==2 or DIM==3) {
 			switch (idx) {
 				case 2: return voxelvertex(3);
 				case 3: return voxelvertex(2);
@@ -83,39 +89,35 @@ namespace gutil {
 				default: return voxelvertex(idx);
 			}
 		}
+
 		////////////////////////////////////////////////////////////////
 		// Containment and intersection
 		////////////////////////////////////////////////////////////////
 		/// Check if point is in the closed box
-		constexpr bool contains(const point_type &point) const noexcept {
+		[[nodiscard]] constexpr bool contains(const point_type& point) const noexcept {
 			return low <= point && point <= high;
 		}
 		
 		/// Check if point is in the open box
-		constexpr bool contains_strict(const point_type &point) const noexcept {
+		[[nodiscard]] constexpr bool contains_strict(const point_type& point) const noexcept {
 			return low < point && point < high;
 		}
 		
 		/// Check if this box contains the other box
-		constexpr bool contains(const Box<DIM,T> &other) const noexcept {
+		[[nodiscard]] constexpr bool contains(const Box<DIM,T>& other) const noexcept {
 			return low <= other.low && other.high <= high;
 		}
 		
 		/// Check if this box intersects the other box (check projection onto each axis)
-		constexpr bool intersects(const Box<DIM,T> &other) const noexcept {
-			for (int i = 0; i < DIM; i++) {
-				if (high[i] < other.low[i] || other.high[i] < low[i]) {
-					return false;
-				}
-			}
-			return true;
+		[[nodiscard]] constexpr bool intersects(const Box<DIM,T>& other) const noexcept {
+			return gutil::intersect(*this, other);
 		}
 
 		/// Find the support point: vertex that maximizes dot(vertex, direction)
-		constexpr point_type support(const point_type &direction) const noexcept {
-			point_type result{low};
+		[[nodiscard]] constexpr point_type support(const point_type& direction) const noexcept {
+			point_type result;
 			for (int i=0; i<DIM; ++i) {
-				if (direction[i] < T{0}) {result[i] = high[i];}
+				result.data[i] = (direction.data[i] < T{0}) ? low.data[i] : high.data[i];
 			}
 			return result;
 		}
@@ -125,114 +127,61 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		
 		/// Shift box by vector
-		constexpr Box& operator+=(const point_type &shift) noexcept {
+		constexpr Box& operator+=(const point_type& shift) noexcept {
 			low += shift;
 			high += shift;
 			return *this;
 		}
 
-		constexpr Box operator+(const point_type &shift) const noexcept {
-			return Box(low + shift, high + shift);
+		[[nodiscard]] constexpr Box operator+(const point_type& shift) const noexcept {
+			return {low + shift, high + shift};
 		}
 
-		constexpr Box& operator-=(const point_type &shift) noexcept {
+		constexpr Box& operator-=(const point_type& shift) noexcept {
 			low -= shift;
 			high -= shift;
 			return *this;
 		}
 
-		constexpr Box operator-(const point_type &shift) const noexcept {
-			return Box(low - shift, high - shift);
-		}
-
-		/// Scale box relative to its center
-		template<typename U>
-		constexpr Box& operator*=(const U& scale) noexcept {
-			point_type c = center();
-			T s = static_cast<T>(scale);
-			low = c + s * (low - c);
-			high = c + s * (high - c);
-			return *this;
-		}
-
-		template<typename U>
-		constexpr Box operator*(const U& scale) const noexcept requires(std::is_convertible<U,T>::value) {
-			point_type c = center();
-			T s = static_cast<T>(scale);
-			return Box(c + s * (low - c), c + s * (high - c));
-		}
-
-		template<typename U>
-		constexpr Box& operator/=(const U& scale) {
-			return (*this) *= (T(1) / static_cast<T>(scale));
-		}
-
-		template<typename U>
-		constexpr Box operator/(const U& scale) const {
-			return (*this) * (T(1) / static_cast<T>(scale));
+		[[nodiscard]] constexpr Box operator-(const point_type& shift) const noexcept {
+			return {low - shift, high - shift};
 		}
 
 		////////////////////////////////////////////////////////////////
 		// Comparison
 		////////////////////////////////////////////////////////////////
-		
-		constexpr bool operator==(const Box<DIM,T> &other) const {
+		[[nodiscard]] constexpr bool operator==(const Box<DIM,T>& other) const noexcept {
 			return low == other.low && high == other.high;
-		}
-
-		constexpr bool operator!=(const Box<DIM,T> &other) const {
-			return !(*this == other);
 		}
 	};
 
 	////////////////////////////////////////////////////////////////
-	// Free functions
+	// Utility functions
 	////////////////////////////////////////////////////////////////
-	template <int DIM, typename T>
-	Box<DIM,T> combine(const Box<DIM,T>& A, const Box<DIM,T>& B) {
-		return {elmin(A.low,B.low), elmax(A.high,B.high)};
-	}
-
-	/// Return intersection of two boxes (undefined if boxes don't intersect)
-	template <int DIM, typename T>
-	Box<DIM,T> intersection(const Box<DIM,T>& A, const Box<DIM,T>& B) {
-		assert(A.intersects(B));
-		return Box(elmax(A.low, B.low), elmin(A.high, B.high));
-	}
-
-
-	template <int DIM, typename T, typename U>
-	constexpr Box<DIM,T> operator*(const U &scale, const Box<DIM,T> &box) {
-		return box * scale;
-	}
-
-	template <int DIM, typename T>
-	constexpr T distance_squared(const Box<DIM,T> &box, const Point<DIM,T> &point) {
-		if (box.contains(point)) {
-			return T{0};
-		}
-
-		// Compute distance to closest point on box surface
-		T dist_sq = 0;
-		for (int i=0; i<DIM; i++) {
-			if (point[i] < box.low[i]) {
-				T diff = box.low[i] - point[i];
-				dist_sq += diff * diff;
-			} else if (point[i] > box.high[i]) {
-				T diff = point[i] - box.high[i];
-				dist_sq += diff * diff;
-			} //no contribution in this axis if the point is in the box interval
-		}
-		return dist_sq;
-	}
-
-	template <int DIM, typename T>
-	inline T distance(const Box<DIM,T> &box, const Point<DIM,T> &point) {
-		return std::sqrt(distance_squared(box, point));
-	}
-
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	std::ostream& operator<<(std::ostream& os, const Box<DIM,T>& box) {
-		return os << "(" << box.low << ") to (" << box.high << ")";
+		return os << "Box{low= {" << box.low << "}, high={" << box.high << "}}";
 	}
+
+	template<int DIM, IsScalar T>
+	[[nodiscard]] inline constexpr bool lexicographic_less(const Box<DIM,T>& left, const Box<DIM,T>& right) noexcept {
+		if (gutil::lexicographic_less(left.low, right.low)) {return true;}
+		if (gutil::lexicographic_less(right.low, left.low)) {return false;}
+		return gutil::lexicographic_less(left.high, right.high);
+	}
+}
+
+
+namespace std
+{
+	//inject the hash into std
+	template<gutil::IsBox T>
+	struct hash<T> {
+		[[nodiscard]] size_t operator()(const T& key) const noexcept{
+			size_t seed{0};
+			gutil::hash_combine(seed, key.low);
+			gutil::hash_combine(seed, key.high);
+			return seed;
+		}
+	};
 }

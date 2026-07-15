@@ -247,18 +247,6 @@ int main(int argc, char** argv)
                   << mismatches << " / " << VERIFY_N << " samples.\n";
         return 1;
     }
-
-
-    // -----------------------------------------------------------------------
-    // set the bounding box to a larger size
-    // -----------------------------------------------------------------------
-    t.start();
-    tree.set_bbox(2.0 * tree.bbox());
-
-    const double set_bbox_ms = t.elapsed_ms();
-    assert(tree.size() == N);
-
-    print_result("set bounding box (double sidelength)", set_bbox_ms, N);
     
     // if we got here, we passed all the tests
     std::cout << "\nAll tests passed.\n";

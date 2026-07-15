@@ -1,7 +1,12 @@
 #pragma once
 
+#include "math/gutilmath.hpp"
+
+#include "geometry/point.hpp"
 #include "geometry/box.hpp"
+
 #include "memory/hetero_slab_allocator.hpp"
+
 #include "octree/node.hpp"
 
 #include <vector>
@@ -80,6 +85,9 @@ namespace gutil
 	template<IsNodeOpts Opts, typename Derived>
 	struct OctreeBase
 	{
+		////////////////////////////////////////////////////////////////
+		// Data and aliases
+		////////////////////////////////////////////////////////////////
 		using internal_node_type = InternalNode<Opts>;
 		using leaf_node_type 	 = LeafNode<Opts>;
 		using tag_ptr_type       = typename internal_node_type::tag_ptr_type;
@@ -91,6 +99,9 @@ namespace gutil
 		using scalar_type 	= typename Opts::scalar_type;	//type that emulates real numbers for the spatial points and aabb
 
 		static constexpr Opts OPTS{};	//capture the compile time options (part of the type)
+		static constexpr bool GUTIL_HAS_DISTANCE_SQUARED = HasDistanceSquared<point_type,value_type>;
+		static constexpr bool GUTIL_HAS_DISTANCE = HasDistance<point_type,value_type>;
+		static constexpr bool TREE_HAS_DISTANCE = Derived::HAS_DISTANCE || GUTIL_HAS_DISTANCE_SQUARED || GUTIL_HAS_DISTANCE;
 
 		//define a struct for useful debug information
 		struct OctreeStats {
@@ -106,7 +117,18 @@ namespace gutil
 			size_t bytes_reserved{0};
 		};
 
+	protected:
+		//track where the root is
+		internal_node_type* root{nullptr};
 
+		//store the data in a contiguous vector, leaves store indices into this
+		std::vector<value_type> _data_;
+
+	private:
+		//make allocator for less fragmented node storage and some convenience contructors
+		HeteroSlabAllocator<internal_node_type,leaf_node_type> _alloc_{};
+
+	public:
 		//default constructor has no root or bounding box
 		//use set_bbox before inserting data
 		OctreeBase() {}
@@ -118,8 +140,11 @@ namespace gutil
 			root -> construct_child_leafs(_alloc_leaf_());
 		}
 
-		//allow moving but not copying
-		OctreeBase(OctreeBase&& other) : root(other.root), _alloc_(std::move(other._alloc_)), _data_(std::move(other._data_)) {
+		//moving is trivial
+		OctreeBase(OctreeBase&& other) : 
+			root(other.root), 
+			_data_(std::move(other._data_)), 
+			_alloc_(std::move(other._alloc_)) {
 			other.root = nullptr;
 		}
 
@@ -135,11 +160,20 @@ namespace gutil
 			return *this;
 		}
 
+		//do not copy
+		OctreeBase(const OctreeBase& other) = delete;
+		OctreeBase operator=(const OctreeBase& other) = delete;
+
+		//ensure the nodes will be correctly freed when the allocator is destroyed
 		static_assert(std::is_trivially_destructible_v<internal_node_type>);
 		static_assert(std::is_trivially_destructible_v<leaf_node_type>);
-		~OctreeBase() {} //_alloc_ free everything automatically if the nodes are trivially destructable
+		~OctreeBase() {}
 
-		//some public simple queries
+
+
+		////////////////////////////////////////////////////////////////
+		// Public Interface
+		////////////////////////////////////////////////////////////////
 		bool contains(const value_type& value) const {
 			return leaf_contains(find_leaf(value), value);
 		}
@@ -239,14 +273,13 @@ namespace gutil
 		}
 
 		//find the nearest data to a point
-		index_type nearest(const point_type& point) const 
-			requires (Derived::HAS_DISTANCE) {
+		index_type nearest(const point_type& point) const requires (TREE_HAS_DISTANCE) {
 			if (_data_.empty()) {
 				return index_type(-1);
 			}
 			else {
 				index_type index = 0;
-				scalar_type dist2 = distance_squared(point, _data_[index]);
+				scalar_type dist2 = gutil::distance_squared(point, _data_[index]);
 				nearest_recursive(root->t_ptr(), point, index, dist2);
 				return index;
 			}
@@ -277,11 +310,9 @@ namespace gutil
 		}
 
 	protected:
-		//track where the root is
-		internal_node_type* root{nullptr};
-
-		//store the data in a contiguous vector, leaves store indices into this
-		std::vector<value_type> _data_;
+		////////////////////////////////////////////////////////////////
+		// Private Utility Functions
+		////////////////////////////////////////////////////////////////
 
 		//reset the tree to a given box and clear the data
 		void reset(const box_type box) {
@@ -326,7 +357,18 @@ namespace gutil
 		scalar_type distance_squared(const point_type& point, const index_type index) const 
 			requires (Derived::HAS_DISTANCE) {
 			assert(index < _data_.size());
-			return distance_squared(point, _data_[index]);
+			return gutil::distance_squared(point, _data_[index]);
+		}
+
+		//lookup the distance_squared function from gutil (only if the distance is not provided by Derived)
+		scalar_type distance_squared(const point_type& point, const value_type& value) const 
+			requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
+			return gutil::distance_squared(point, value);
+		}
+
+		scalar_type distance_squared(const point_type& point, const index_type index) const 
+			requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
+			return gutil::distance_squared(point, _data_[index]);
 		}
 
 		//pass checking if a leaf contains a value to the derived class (necessary if the leaf stores indices)
@@ -383,19 +425,17 @@ namespace gutil
 		//recursive portion of finding the nearest data to a point
 		//index and dist are the current best index/data and its distance
 		void nearest_recursive(const tag_ptr_type node, const point_type& point, 
-				index_type& index, scalar_type& dist2) const requires (Derived::HAS_DISTANCE);
+				index_type& index, scalar_type& dist2) const requires (TREE_HAS_DISTANCE);
 		
 		//recursive portion of computing tree stats
 		void get_stats_recursive(const tag_ptr_type node, OctreeStats& stats) const;
 
 	private:
-		//make allocator for less fragmented node storage and some convenience contructors
-		HeteroSlabAllocator<internal_node_type,leaf_node_type> _alloc_{};
 		auto& _alloc_internal_() {return _alloc_.template pool<internal_node_type>();}
 		auto& _alloc_leaf_() {return _alloc_.template pool<leaf_node_type>();}
 
-		leaf_node_type* construct_leaf(const box_type& box) 			{return _alloc_.template construct<leaf_node_type>(box);}
-		internal_node_type* construct_internal(const box_type& box) 	{return _alloc_.template construct<internal_node_type>(box);}
+		leaf_node_type* construct_leaf(const box_type& box) 		{return _alloc_.template construct<leaf_node_type>(box);}
+		internal_node_type* construct_internal(const box_type& box) {return _alloc_.template construct<internal_node_type>(box);}
 		void destroy_leaf(leaf_node_type* p) 						{_alloc_.template destroy<leaf_node_type>(p);}
 		void destroy_internal(internal_node_type* p) 				{_alloc_.template destroy<internal_node_type>(p);}
 	};
@@ -586,8 +626,8 @@ namespace gutil
 
 	//find the nearest data to a point
 	template<IsNodeOpts O, typename D>
-	void OctreeBase<O,D>:: nearest_recursive(const tag_ptr_type node, 
-		const point_type& point, index_type& index, scalar_type& dist2) const requires (D::HAS_DISTANCE) {
+	void OctreeBase<O,D>::nearest_recursive(const tag_ptr_type node, 
+		const point_type& point, index_type& index, scalar_type& dist2) const requires (OctreeBase<O,D>::TREE_HAS_DISTANCE) {
 		if (node.tag() == NodeTag::INTERNAL) {
 			const internal_node_type* internal = static_cast<const internal_node_type*>(node);
 
@@ -595,7 +635,7 @@ namespace gutil
 			std::array<std::pair<scalar_type, tag_ptr_type>, O::N_CHILDREN> children_dist_pair;
 			size_t i=0;
 			for (tag_ptr_type c_ptr : *internal) {
-				//note distance_squared(box, point) is a free standing function in box.hpp
+				//note distance_squared(box, point) is a free standing function in gutilmath.hpp
 				const scalar_type d2 = gutil::distance_squared(get_box(c_ptr), point);
 				children_dist_pair[i++] = {d2, c_ptr};
 			}
@@ -612,7 +652,7 @@ namespace gutil
 			const leaf_node_type* leaf = static_cast<const leaf_node_type*>(node);
 			for (index_type idx : *leaf) {
 				assert(idx < _data_.size());
-				const scalar_type d2 = distance_squared(point, _data_[idx]);
+				const scalar_type d2 = this->distance_squared(point, _data_[idx]);
 				if (d2 < dist2) {
 					dist2 = d2;
 					index = idx;
@@ -696,7 +736,7 @@ namespace gutil
 
 		//union the bounding boxes
 		box_type box = first.bbox();
-		( (box = combine(box, rest.bbox())), ...);
+		( (box = gutil::merge(box, rest.bbox())), ...);
 
 		//move data into a single vector
 		std::vector<value_type> buffer;

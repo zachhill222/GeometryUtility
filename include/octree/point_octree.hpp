@@ -10,7 +10,7 @@ namespace gutil {
 
 	template<size_t Dimension, typename ScalarT, size_t MaxData=64>
 	struct PointOctree : public OctreeBase<PointOctreeOpts<Dimension,ScalarT,MaxData>, PointOctree<Dimension,ScalarT,MaxData>> {
-		static constexpr bool HAS_DISTANCE = true;
+		static constexpr bool HAS_DISTANCE = false;
 
 		using BASE = OctreeBase<PointOctreeOpts<Dimension,ScalarT,MaxData>, PointOctree<Dimension,ScalarT,MaxData>>;
 

@@ -9,8 +9,7 @@
 #include <span>
 #include <iostream>
 #include <cassert>
-#include <numeric>
-
+#include <limits>
 
 
 
@@ -24,10 +23,7 @@ namespace gutil
 	/// defined in the class below
 	///////////////////////////////////////////////////////////
 	template<typename T>
-	concept IsPointLike = requires {
-		typename std::integral_constant<int, T::dim>;
-		typename T::value_type;
-	} && IsScalar<typename T::value_type> && std::same_as<T, Point<T::dim, typename T::value_type>>;
+	concept IsPoint = GutilGeometryObject<T> && std::same_as<T, Point<T::DIMENSION, typename T::scalar_type>>;
 
 	
 	//////////////////////////////////////////////////////////
@@ -45,20 +41,26 @@ namespace gutil
 	template<int DIM, IsScalar T=double> requires (DIM>0)
 	struct Point
 	{
-		//track type information
-		static constexpr int dim = DIM;
-		using value_type = T;
+		////////////////////////////////////////////////////////////////
+		// Data and aliases
+		////////////////////////////////////////////////////////////////
+		using scalar_type = T;
 
-		//essential constructors
-		// note that the default constructor does not initialize data.
-		// it has indeterminant values and all values should be assigned before reading.
-		// use Zeros() to have data be initialized to all zeros.
-		Point() noexcept {}
+		T data[DIM];
+
+		static constexpr int DIMENSION = DIM;
+
+		////////////////////////////////////////////////////////////////
+		// Constructors and move/copy
+		////////////////////////////////////////////////////////////////
+		constexpr Point() noexcept {} //note data[] is not initialized
 		constexpr Point(const Point& other) noexcept = default;
 		constexpr Point(Point&& other) noexcept = default;
+		constexpr Point& operator=(const Point& other) noexcept = default;
+		constexpr Point& operator=(Point&& other) noexcept = default;
 
 		//initialize via Point v(1,2,3)
-		template<typename... Ts> requires (sizeof...(Ts)==DIM && (std::is_nothrow_convertible<Ts,T>::value && ...))
+		template<typename... Ts> requires (sizeof...(Ts)==DIM && (std::is_nothrow_convertible_v<Ts,T> && ...))
 		constexpr Point(Ts... args) : data{static_cast<T>(args)...} {}
 
 		//factory methods
@@ -70,10 +72,7 @@ namespace gutil
 
 		[[nodiscard]] static constexpr Point Zeros() noexcept {return Filled(T{0});}
 
-		//copy and move assignment
-		constexpr Point& operator=(const Point& other) noexcept = default;
-		constexpr Point& operator=(Point&& other) noexcept = default;
-
+		
 		//element access
 		[[nodiscard]] constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return data[idx];}
 		[[nodiscard]] constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return data[idx];}
@@ -112,60 +111,61 @@ namespace gutil
 		//////////////////////////////////////////////////////////
 		/// IN-PLACE BINARY OPERATIONS
 		//////////////////////////////////////////////////////////
-		Point& operator+=(const Point& other) noexcept {
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
+		constexpr Point& operator+=(const Point& other) noexcept {
 			for (int i=0; i<DIM; i++) {data[i] += other.data[i];}
 			return *this;
 		}
 
-		Point& operator-=(const Point& other) noexcept {
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
+		constexpr Point& operator-=(const Point& other) noexcept {
 			for (int i=0; i<DIM; i++) {data[i] -= other.data[i];}
 			return *this;
 		}
 
-		Point& operator*=(const Point& other) noexcept {
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
+		constexpr Point& operator*=(const Point& other) noexcept {
 			for (int i=0; i<DIM; i++) {data[i] *= other.data[i];}
 			return *this;
 		}
 
-		Point& operator/=(const Point& other) noexcept {
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
+		constexpr Point& operator/=(const Point& other) noexcept {
 			for (int i=0; i<DIM; i++) {data[i] /= other.data[i];}
 			return *this;
 		}
 
-		Point& operator%=(const Point& other) noexcept requires(std::integral<T>) {
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
+		constexpr Point& operator%=(const Point& other) noexcept requires(std::integral<T>) {
 			for (int i=0; i<DIM; i++) {data[i] %= other.data[i];}
 			return *this;
 		}
 
+		constexpr Point& operator%=(const T scalar) noexcept requires(std::integral<T>) {
+			for (int i=0; i<DIM; i++) {data[i] %= scalar;}
+			return *this;
+		}
+
 		template<typename U> requires std::is_nothrow_convertible<U,T>::value
-		Point& operator*=(const U scalar) noexcept {
+		constexpr Point& operator*=(const U scalar) noexcept {
 			const T s = static_cast<T>(scalar);
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {data[i] *= s;}
 			return *this;
 		}
 
 		template<typename U> requires std::is_nothrow_convertible<U,T>::value
-		Point& operator/=(const U scalar) noexcept {
+		constexpr Point& operator/=(const U scalar) noexcept {
 			assert(scalar!=U{0} && "Point::operator/=: divide by zero");
-			const T s_inv = static_cast<T>(U{1}/scalar);
-			
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
-			for (int i=0; i<DIM; i++) {data[i] *= s_inv;}
+			if constexpr (std::numeric_limits<T>::is_integer) {
+				for (int i=0; i<DIM; i++) {data[i] /= scalar;}
+			}
+			else {
+				const T s_inv = static_cast<T>(U{1}/scalar);
+				for (int i=0; i<DIM; i++) {data[i] *= s_inv;}
+			}
 			return *this;
 		}
 
 		//////////////////////////////////////////////////////////
 		/// UNARY OPERATIONS
 		//////////////////////////////////////////////////////////
-		[[nodiscard]] Point operator-() const noexcept {
+		[[nodiscard]] constexpr Point operator-() const noexcept {
 			Point result;
-			GUTIL_IF_OPENMP("omp simd if(DIM>16)")
 			for (int i=0; i<DIM; i++) {result.data[i] = -data[i];}
 			return result;
 		}
@@ -175,22 +175,22 @@ namespace gutil
 			return *this;
 		}
 
-		Point normalized() const {
+		[[nodiscard]] Point normalized() const {
 			return gutil::normalized(*this);
 		}
 
 		//////////////////////////////////////////////////////////
 		/// REDUCTIONS AND NORM OPERATIONS
 		//////////////////////////////////////////////////////////
-		[[nodiscard]] T norminfty() const noexcept {
+		[[nodiscard]] constexpr T norminfty() const noexcept {
 			return gutil::norminfty(*this);
 		}
 
-		[[nodiscard]] T norm1() const noexcept {
+		[[nodiscard]] constexpr T norm1() const noexcept {
 			return gutil::norm1(*this);
 		}
 
-		[[nodiscard]] T squared_norm() const noexcept {
+		[[nodiscard]] constexpr T squared_norm() const noexcept {
 			return gutil::squared_norm(*this);
 		}
 
@@ -198,50 +198,48 @@ namespace gutil
 			return gutil::norm2(*this);
 		}
 
-		[[nodiscard]] T prod() const noexcept {
+		[[nodiscard]] constexpr T prod() const noexcept {
 			return gutil::product_reduce(*this);
 		}
 
-		[[nodiscard]] T sum() const noexcept {
+		[[nodiscard]] constexpr T sum() const noexcept {
 			return gutil::sum_reduce(*this);
 		}
 
-		[[nodiscard]] T max() const noexcept {
+		[[nodiscard]] constexpr T max() const noexcept {
 			return gutil::max_reduce(*this);
 		}
 
-		[[nodiscard]] T min() const noexcept {
+		[[nodiscard]] constexpr T min() const noexcept {
 			return gutil::min_reduce(*this);
 		}
 
 		//////////////////////////////////////////////////////////
 		/// BINARY VECTOR OPERATIONS
 		//////////////////////////////////////////////////////////
-		[[nodiscard]] T dot(const Point& other) const noexcept {
+		[[nodiscard]] constexpr T dot(const Point& other) const noexcept {
 			return gutil::dot(*this, other);
 		}
 
 		[[nodiscard]] constexpr Point<3,T> cross(const Point& other) const noexcept requires (DIM==3) {
 			return gutil::cross(*this, other);
 		}
-
-		T data[DIM];
 	};
 
 
 	///////////////////////////////////////////////////////////////////
-	/// Ensure that the concept 'IsPointLike' is valid
+	/// Ensure that the concept 'IsPoint' is valid
 	///////////////////////////////////////////////////////////////////
-	static_assert(IsPointLike<Point<3,float>>);
-	static_assert(IsPointLike<Point<2,float>>);
-	static_assert(IsPointLike<Point<3,double>>);
-	static_assert(IsPointLike<Point<2,double>>);
+	static_assert(IsPoint<Point<3,float>>);
+	static_assert(IsPoint<Point<2,float>>);
+	static_assert(IsPoint<Point<3,double>>);
+	static_assert(IsPoint<Point<2,double>>);
 
 
 	////////////////////////////////////////////////////////////////////
 	/////// COMPARISON (CONE/ELEMENT-WISE, NOT A TOTAL ORDERING) ///////
 	////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] constexpr bool operator==(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		for (int i=0; i<DIM; i++) {
 			if (left[i]!=right[i]) {return false;}
@@ -249,7 +247,7 @@ namespace gutil
 		return true;
 	}
 
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] constexpr bool operator<(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		for (int i=0; i<DIM; i++) {
 			if (left[i] >= right[i]) {return false;}
@@ -257,7 +255,7 @@ namespace gutil
 		return true;
 	}
 
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] constexpr bool operator<=(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		for (int i=0; i<DIM; i++) {
 			if (left[i] > right[i]) {return false;}
@@ -265,7 +263,7 @@ namespace gutil
 		return true;
 	}
 
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] constexpr bool operator>(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		for (int i=0; i<DIM; i++) {
 			if (left[i] <= right[i]) {return false;}
@@ -273,7 +271,7 @@ namespace gutil
 		return true;
 	}
 
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] constexpr bool operator>=(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		for (int i=0; i<DIM; i++) {
 			if (left[i] < right[i]) {return false;}
@@ -284,69 +282,70 @@ namespace gutil
 	/////////////////////////////////////////////////////////////////////////////
 	//////////////////////// STANDARD BINARY OPERATIONS /////////////////////////
 	/////////////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T>
-	[[nodiscard]] Point<DIM,T> operator+(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		Point<DIM,T> result{left};
-		return result+=right;
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] constexpr Point<DIM,T> operator+(Point<DIM,T> left, const Point<DIM,T>& right) noexcept {
+		return left+=right;
 	}
 
-	template<int DIM, typename T>
-	[[nodiscard]] Point<DIM,T> operator-(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		Point<DIM,T> result{left};
-		return result-=right;
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] constexpr Point<DIM,T> operator-(Point<DIM,T> left, const Point<DIM,T>& right) noexcept {
+		return left-=right;
 	}
 
-	template<int DIM, typename T>
-	[[nodiscard]] Point<DIM,T> operator*(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		Point<DIM,T> result{left};
-		return result*=right;
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] constexpr Point<DIM,T> operator*(Point<DIM,T> left, const Point<DIM,T>& right) noexcept {
+		return left*=right;
 	}
 
-	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] Point<DIM,T> operator*(const U left, const Point<DIM,T>& right) noexcept {
-		Point<DIM,T> result{right};
-		return result*=static_cast<T>(left);
+	template<int DIM, IsScalar T, IsScalar U>  requires (DIM>0) && std::is_nothrow_convertible<U,T>::value
+	[[nodiscard]] constexpr Point<DIM,T> operator*(const U left, Point<DIM,T> right) noexcept {
+		return right*=static_cast<T>(left);
 	}
 
-	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] Point<DIM,T> operator*(const Point<DIM,T>& left, const U right) noexcept {
-		Point<DIM,T> result{left};
-		return result*=static_cast<T>(right);
+	template<int DIM, IsScalar T, IsScalar U>  requires (DIM>0) && std::is_nothrow_convertible<U,T>::value
+	[[nodiscard]] constexpr Point<DIM,T> operator*(Point<DIM,T> left, const U right) noexcept {
+		return left*=static_cast<T>(right);
 	}
 
-	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] Point<DIM,T> operator/(const Point<DIM,T>& left, const U right) noexcept {
-		Point<DIM,T> result{left};
-		return result/=static_cast<T>(right);
+	template<int DIM, IsScalar T, IsScalar U>  requires (DIM>0) && std::is_nothrow_convertible<U,T>::value
+	[[nodiscard]] constexpr Point<DIM,T> operator/(Point<DIM,T> left, const U right) noexcept {
+		return left/=static_cast<T>(right);
 	}
 
-	template<int DIM, typename T, typename U> requires std::is_nothrow_convertible<U,T>::value
-	[[nodiscard]] Point<DIM,T> operator/(const U left, const Point<DIM,T>& right) noexcept {
+	template<int DIM, IsScalar T, IsScalar U>  requires (DIM>0) && std::is_nothrow_convertible<U,T>::value
+	[[nodiscard]] constexpr Point<DIM,T> operator/(const U left, const Point<DIM,T>& right) noexcept {
 		Point<DIM,T> result = Point<DIM,T>::Filled(static_cast<T>(left));
 		return result/=right;
 	}
 
-	template<int DIM, typename T>
-	[[nodiscard]] Point<DIM,T> operator/(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		Point<DIM,T> result{left};
-		return result/=right;
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] constexpr Point<DIM,T> operator/(Point<DIM,T> left, const Point<DIM,T>& right) noexcept {
+		return left/=right;
 	}
 
-	template<int DIM, typename T> requires std::integral<T>
-	[[nodiscard]] Point<DIM,T> operator%(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept{
-		Point<DIM,T> result{left};
-		return result%=right;
+	template<int DIM, IsScalar T> requires (DIM>0) && IsInteger<T>
+	[[nodiscard]] constexpr Point<DIM,T> operator%(Point<DIM,T> left, const Point<DIM,T>& right) noexcept{
+		return left%=right;
 	}
 
 
 	/////////////////////////////////////////////////////////////////////////////
 	//////////////////////////// UTILITY OPERATIONS /////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T>
+	template<int DIM, IsScalar T> requires (DIM>0)
 	std::ostream& operator<<(std::ostream& os, const Point<DIM,T>& point) {
 		for (int i = 0; i < DIM-1; i++) {os << point[i] << " ";}
 		os << point[DIM-1];
 		return os;
+	}
+
+	template<int DIM, IsScalar T> requires(DIM>0)
+	[[nodiscard]] inline constexpr bool lexicographic_less(const T& left, const T& right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			if (left.data[i] < right.data[i]) {return true;}
+			else if (right.data[i] < left.data[i]) {return false;}
+		}
+		return false;
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -362,30 +361,49 @@ namespace gutil
 	/// @tparam U is the type that the arithmetic should be done in
 	/// @tparam T is the input/output type
 	////////////////////////////////////////////////////////////////////////////////
-	template<int DIM, typename T, typename U=T>
+	GUTIL_NO_ASSOC_MATH_START
+	template<int DIM, IsScalar T, IsScalar U=T> requires (std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
 	[[nodiscard]] inline Point<DIM,T> sorted_sum(std::span<const Point<DIM,T>> points) noexcept {
 		if (points.empty()) {return Point<DIM,T>::Zeros();}
 
 		Point<DIM,T> result;
 		std::vector<U> component;
-		component.reserve(points.size());
+
+		const size_t N = points.size();
+		component.resize(N);
 
 		for (int i = 0; i < DIM; i++) {
-			component.clear();
-			for ( const Point<DIM,T>& p : points) {
-				component.push_back(static_cast<U>(p[i]));
+			for (size_t n=0; n<N; ++n) {
+				component[n] = static_cast<U>(points[n].data[i]);
 			}
 
 			std::sort(component.begin(), component.end(), 
 				[](U a, U b) {return gutil::abs(a) < gutil::abs(b);});
 
-			result[i] = static_cast<T>(std::accumulate(component.begin(), component.end(), U{0}));
+			U acc{0};
+			for (U val : component) {
+				acc += val;
+			}
+
+			result[i] = static_cast<T>(acc);
+		}
+		return result;
+	}
+	GUTIL_NO_ASSOC_MATH_END
+
+	template<int DIM, IsScalar T, IsScalar U=T> requires (!std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
+	[[nodiscard]] inline Point<DIM,T> sorted_sum(std::span<const Point<DIM,T>> points) noexcept {
+		//just add in any order for exact arithemtic types
+		Point<DIM,U> result;
+		for (const Point<DIM,T>& p : points) {
+			result += p;
 		}
 		return result;
 	}
 
+
 	/// Convenient ways to call the sorted sum.
-	template<int DIM, typename T, typename U=T>
+	template<int DIM, IsScalar T, IsScalar U=T>
 	[[nodiscard]] inline Point<DIM,T> sorted_sum(std::initializer_list<Point<DIM,T>> points) noexcept {
 		std::vector<Point<DIM,T>> intermediate{points};
 		return sorted_sum<DIM,T,U>(intermediate);
@@ -401,7 +419,7 @@ namespace gutil
 	/// @tparam T is the input/output type
 	////////////////////////////////////////////////////////////////////////////////
 	GUTIL_NO_ASSOC_MATH_START
-	template<int DIM, typename T, typename U=T> requires (std::floating_point<T> && std::is_nothrow_convertible<T,U>::value)
+	template<int DIM, IsScalar T, IsScalar U=T> requires (std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
 	[[nodiscard]] inline Point<DIM,T> kahan_sum(std::span<const Point<DIM,T>> points) noexcept {
 		if (points.empty()) {return Point<DIM,T>::Zeros();}
 		
@@ -420,8 +438,27 @@ namespace gutil
 	}
 	GUTIL_NO_ASSOC_MATH_END
 
+	template<int DIM, IsScalar T, IsScalar U=T> requires (!std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
+	[[nodiscard]] inline Point<DIM,T> kahan_sum(std::span<const Point<DIM,T>> points) noexcept {
+		//just add in any order for exact arithemtic types
+		Point<DIM,U> result;
+		for (const Point<DIM,T>& p : points) {
+			result += p;
+		}
+		return result;
+	}
+}
 
-
-	
-
+namespace std {
+	//inject the hash into std
+	template<gutil::IsPoint T>
+	struct hash<T> {
+		[[nodiscard]] size_t operator()(const T& key) const noexcept{
+			size_t seed{0};
+			for (int i=0; i<T::DIMENSION; ++i) {
+				gutil::hash_combine(seed, key.data[i]);
+			}
+			return seed;
+		}
+	};
 }
