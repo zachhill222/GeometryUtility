@@ -1,10 +1,11 @@
 #pragma once
 
-#include "math/gutilmath.hpp"
+#include "math/math.hpp"
+#include "utility/utility.hpp"
 // #include "math/fixed_point.hpp"
 // #include "math/float_manipulation.hpp"
 // #include "math/matrix.hpp"
-#include "math/quaternion.hpp"
+// #include "math/quaternion.hpp"
 // #include "math/linear_set.hpp"
 
 #include "geometry/point.hpp"

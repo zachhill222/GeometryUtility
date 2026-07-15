@@ -1,20 +1,15 @@
 #pragma once
 
-#include "math/gutilmath.hpp"
+#include "utility/utility.hpp"
+#include "math/math.hpp"
 
 #include <algorithm>
 #include <initializer_list>
-#include <concepts>
-#include <vector>
 #include <span>
+#include <concepts>
 #include <iostream>
 #include <cassert>
-#include <limits>
-
-
-
-
-
+#include <functional>
 
 namespace gutil
 {
@@ -23,7 +18,7 @@ namespace gutil
 	/// defined in the class below
 	///////////////////////////////////////////////////////////
 	template<typename T>
-	concept IsPoint = GutilGeometryObject<T> && std::same_as<T, Point<T::DIMENSION, typename T::scalar_type>>;
+	concept IsPoint = GeometryObject<T> && std::same_as<T, Point<T::DIMENSION, typename T::scalar_type>>;
 
 	
 	//////////////////////////////////////////////////////////
@@ -73,7 +68,9 @@ namespace gutil
 		[[nodiscard]] static constexpr Point Zeros() noexcept {return Filled(T{0});}
 
 		
-		//element access
+		////////////////////////////////////////////////////////////////
+		// Element access
+		////////////////////////////////////////////////////////////////
 		[[nodiscard]] constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return data[idx];}
 		[[nodiscard]] constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return data[idx];}
 
@@ -86,9 +83,6 @@ namespace gutil
 		[[nodiscard]] constexpr T& z() noexcept requires (DIM>2) {return data[2];}
 		[[nodiscard]] constexpr T& w() noexcept requires (DIM>3) {return data[3];}
 
-		//standard container access
-		[[nodiscard]] static constexpr size_t size() noexcept {return static_cast<size_t>(DIM);}
-
 		constexpr T*       begin()        noexcept {return data;}
 		constexpr const T* begin()  const noexcept {return data;}
 		constexpr T*       end()          noexcept {return data + DIM;}
@@ -96,8 +90,10 @@ namespace gutil
 		constexpr const T* cbegin() const noexcept {return data;}
 		constexpr const T* cend()   const noexcept {return data + DIM;}
 
-		//type conversion
-		template<int OTHER_DIM, typename OTHER_T> requires std::is_nothrow_convertible<T,OTHER_T>::value
+		////////////////////////////////////////////////////////////////
+		// Type conversion
+		////////////////////////////////////////////////////////////////
+		template<int OTHER_DIM, IsScalar OTHER_T> requires std::is_nothrow_convertible<T,OTHER_T>::value
 		[[nodiscard]] explicit constexpr operator Point<OTHER_DIM, OTHER_T>() const noexcept {
 			Point<OTHER_DIM,OTHER_T> result;
 			constexpr int min_dim = DIM < OTHER_DIM ? DIM : OTHER_DIM;
@@ -106,6 +102,14 @@ namespace gutil
 			//append 0 if necessary
 			for (int i=min_dim; i<OTHER_DIM; i++) {result[i] = OTHER_T{0};}
 			return result;
+		}
+
+		[[nodiscard]] constexpr std::span<T,DIM> as_span() noexcept {
+			return {data};
+		}
+
+		[[nodiscard]] constexpr std::span<const T,DIM> as_span() const noexcept {
+			return {data};
 		}
 
 		//////////////////////////////////////////////////////////
@@ -183,35 +187,35 @@ namespace gutil
 		/// REDUCTIONS AND NORM OPERATIONS
 		//////////////////////////////////////////////////////////
 		[[nodiscard]] constexpr T norminfty() const noexcept {
-			return gutil::norminfty(*this);
+			return gutil::norminfty<DIM,T>(data);
 		}
 
 		[[nodiscard]] constexpr T norm1() const noexcept {
-			return gutil::norm1(*this);
+			return gutil::norm1<DIM,T>(data);
 		}
 
 		[[nodiscard]] constexpr T squared_norm() const noexcept {
-			return gutil::squared_norm(*this);
+			return gutil::squared_norm<DIM,T>(data);
 		}
 
 		[[nodiscard]] T norm2() const noexcept {
-			return gutil::norm2(*this);
+			return gutil::norm2<DIM,T>(data);
 		}
 
 		[[nodiscard]] constexpr T prod() const noexcept {
-			return gutil::product_reduce(*this);
+			return gutil::product_reduce<DIM,T>(data);
 		}
 
 		[[nodiscard]] constexpr T sum() const noexcept {
-			return gutil::sum_reduce(*this);
+			return gutil::sum_reduce<DIM,T>(data);
 		}
 
 		[[nodiscard]] constexpr T max() const noexcept {
-			return gutil::max_reduce(*this);
+			return gutil::max_reduce<DIM,T>(data);
 		}
 
 		[[nodiscard]] constexpr T min() const noexcept {
-			return gutil::min_reduce(*this);
+			return gutil::min_reduce<DIM,T>(data);
 		}
 
 		//////////////////////////////////////////////////////////
@@ -334,18 +338,13 @@ namespace gutil
 	/////////////////////////////////////////////////////////////////////////////
 	template<int DIM, IsScalar T> requires (DIM>0)
 	std::ostream& operator<<(std::ostream& os, const Point<DIM,T>& point) {
-		for (int i = 0; i < DIM-1; i++) {os << point[i] << " ";}
-		os << point[DIM-1];
+		print_to_stream(os, point.data, " ");
 		return os;
 	}
 
 	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr bool lexicographic_less(const T& left, const T& right) noexcept {
-		for (int i=0; i<DIM; ++i) {
-			if (left.data[i] < right.data[i]) {return true;}
-			else if (right.data[i] < left.data[i]) {return false;}
-		}
-		return false;
+	[[nodiscard]] inline constexpr bool lexicographic_less(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::lexicographic_less_than<DIM,T>(left.data, right.data);
 	}
 
 	/////////////////////////////////////////////////////////////////////////////

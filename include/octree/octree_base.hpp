@@ -1,6 +1,7 @@
 #pragma once
 
-#include "math/gutilmath.hpp"
+#include "utility/utility.hpp"
+#include "math/math.hpp"
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"

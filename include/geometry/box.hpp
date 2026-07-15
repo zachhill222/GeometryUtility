@@ -1,20 +1,17 @@
 #pragma once
 
-#include "math/gutilmath.hpp"
+#include "utility/utility.hpp"
+#include "math/math.hpp"
 #include "geometry/point.hpp"
 
-#include <string>
-#include <sstream>
-#include <cmath>
 #include <iostream>
 #include <cassert>
 #include <algorithm>
-#include <type_traits>
-#include <limits>
+#include <functional>
 
 namespace gutil {
 	template<typename T>
-	concept IsBox = GutilGeometryObject<T> && std::same_as<T, Box<T::DIMENSION, typename T::scalar_type>>;
+	concept IsBox = GeometryObject<T> && std::same_as<T, Box<T::DIMENSION, typename T::scalar_type>>;
 
 	template<int DIM, IsScalar T> requires(DIM>0)
 	struct Box {

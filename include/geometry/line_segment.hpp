@@ -1,11 +1,13 @@
 #pragma once
 
-#include "math/gutilmath.hpp"
+#include "utility/utility.hpp"
+#include "math/math.hpp"
 #include "geometry/point.hpp"
 #include "geometry/line.hpp"
 
 #include <iostream>
 #include <cassert>
+#include <functional>
 
 
 
@@ -16,7 +18,7 @@
 namespace gutil
 {
 	template<typename T>
-	concept IsSegment = GutilGeometryObject<T> && std::same_as<T, Segment<T::DIMENSION, typename T::scalar_type>>;
+	concept IsSegment = GeometryObject<T> && std::same_as<T, Segment<T::DIMENSION, typename T::scalar_type>>;
 
 	//////////////////////////////////////////////////////////
 	/// A class for line segments in cartesian space

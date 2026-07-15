@@ -1,207 +1,201 @@
 #pragma once
 
-#include "geometry/point.hpp"
+#include "utility/utility.hpp"
+#include "math/math.hpp"
+
 #include <iostream>
-#include <cmath>
+#include <cassert>
 
 namespace gutil {
+	template<int DIM, IsScalar T> requires (DIM>0)
+	struct Point;
 
-	template <typename T=double>
-	class Quaternion {
-	public:
-		//// INITIALIZERS
-		Quaternion(): _q0(1), _qv(Point<3,T> {0,0,0}) {}
-		Quaternion(const T q0, const T q1, const T q2, const T q3): _q0(q0), _qv(Point<3,T> {q1,q2,q3} ) {}
-		Quaternion(const T q0, const Point<3,T> qv): _q0(q0), _qv(Point<3,T> {qv[0], qv[1], qv[2]}) {}
 
-		//// ATTRIBUTES
-		constexpr T operator[](int idx) const;
-		constexpr T& operator[](int idx);
+	template<IsReal T>
+	struct Quaternion
+	{
+		////////////////////////////////////////////////////////////////
+		// Data and aliases
+		////////////////////////////////////////////////////////////////
+		using scalar_type = T;
+		using point_type = Point<3,T>;
+		
+		T data[4];
 
-		constexpr T q0() const;
-		constexpr Point<3,T> qv() const;
-		constexpr T& q0();
-		constexpr Point<3,T>& qv();
+		static constexpr int DIMENSION = 4;
 
-		//// FACTORIES
-		static constexpr Quaternion identity() {return Quaternion{T{1}, T{0}, T{0}, T{0}};}
-		static constexpr Quaternion angle_axis(const T theta, const Point<3,T>& axis) {
-			Quaternion q;
-			return q.setrotation(theta, axis);
+		////////////////////////////////////////////////////////////////
+		// Constructors and move/copy
+		////////////////////////////////////////////////////////////////
+		constexpr Quaternion() noexcept {} //note data[] is not initialized
+		constexpr Quaternion(const Quaternion& other) noexcept = default;
+		constexpr Quaternion(Quaternion&& other) noexcept = default;
+		constexpr Quaternion& operator=(const Quaternion& other) noexcept = default;
+		constexpr Quaternion& operator=(Quaternion&& other) noexcept = default;
+		
+		constexpr Quaternion(const T q0, const T q1, const T q2, const T q3) noexcept : data{q0, q1, q2, q3} {}
+		Quaternion(T theta, point_type axis) noexcept {
+			//a rotaion quaternion has the form
+			// 		cos(theta/2) + sin(theta/2)( x*i + y*j + z*k)
+			//where (x,y,z) is a unit vector.
+			theta *= T{0.5};
+			axis.normalize() *= gutil::sin(theta);
+			
+			data[0] = gutil::cos(theta);
+			data[1] = axis[0];
+			data[2] = axis[1];
+			data[3] = axis[2];
 		}
 
-		//// ROTATIONS
-		constexpr Quaternion conj() const;
-		constexpr Quaternion inv() const;
-		constexpr T squared_norm() const;
-		constexpr T norm() const;
-		constexpr Quaternion& normalize(); //normalize this quaternion to a rotation quaternion
-		constexpr Quaternion& setrotation(const T& theta, const Point<3,T>& axis);
-		constexpr Point<3,T> rotate(const Point<3,T>& point) const; //rotate point
-		constexpr bool is_rotation() const;
+		static constexpr Quaternion Identity() noexcept {return {T{1}, T{0}, T{0}, T{0}};}
+		static Quaternion Rotation(T theta, point_type norm_axis) noexcept {
+			theta *= T{0.5};
+			norm_axis *= gutil::sin(theta);
+			return {gutil::cos(theta), norm_axis[0], norm_axis[1], norm_axis[3]};
+		}
 
-		///// ARITHMETIC
-		constexpr Quaternion& operator+=(const Quaternion& other);
-		constexpr Quaternion  operator+(const Quaternion& other) const;
-		constexpr Quaternion& operator-=(const Quaternion& other);
-		constexpr Quaternion  operator-(const Quaternion& other) const;
-		constexpr Quaternion& operator*=(const Quaternion& other);
-		constexpr Quaternion  operator*(const Quaternion& other) const;
-		constexpr Quaternion& operator/=(const Quaternion& other);
-		constexpr Quaternion  operator/(const Quaternion& other) const;
-		constexpr bool operator==(const Quaternion& other) const;
-		inline bool operator!=(const Quaternion& other) const { return !(operator==(other));}
+		////////////////////////////////////////////////////////////////
+		// Element access
+		////////////////////////////////////////////////////////////////
+		[[nodiscard]] constexpr T operator[](const int idx) const noexcept {
+			assert(0<=idx and idx<4);
+			return data[idx];
+		}
 		
-	private:
-		T _q0;
-		Point<3,T> _qv;
+		[[nodiscard]] constexpr T& operator[](const int idx) noexcept {
+			assert(0<=idx and idx<4);
+			return data[idx];
+		}
+
+		[[nodiscard]] constexpr T q0() const noexcept {
+			return data[0];
+		}
+
+		[[nodiscard]] constexpr point_type qv() const noexcept {
+			return {data[1], data[2], data[3]};
+		}
+
+		constexpr T*       begin()        noexcept {return data;}
+		constexpr const T* begin()  const noexcept {return data;}
+		constexpr T*       end()          noexcept {return data + 4;}
+		constexpr const T* end()    const noexcept {return data + 4;}
+		constexpr const T* cbegin() const noexcept {return data;}
+		constexpr const T* cend()   const noexcept {return data + 4;}
+
+		////////////////////////////////////////////////////////////////
+		// Rotations
+		////////////////////////////////////////////////////////////////
+		[[nodiscard]] constexpr Quaternion conj() const  noexcept {
+			return {data[0], -data[1], -data[2], -data[3]};
+		}
+
+		[[nodiscard]] constexpr Quaternion inv() const noexcept {
+			assert(this->squared_norm() > T{0});
+			const T n_inv = T{-1}/squared_norm();
+			return {-n_inv*data[0], n_inv*data[1], n_inv*data[2], n_inv*data[3]};
+		}
+
+		[[nodiscard]] constexpr T squared_norm() const noexcept {
+			return gutil::squared_norm<4,T>(data);
+		}
+
+		[[nodiscard]] T norm() const noexcept {
+			return gutil::sqrt(this->squared_norm());
+		}
+
+		[[nodiscard]] constexpr point_type rotate(const point_type& point) const noexcept {
+			Quaternion V{T{0}, point[0], point[1], point[2]};
+			V = V * this->conj();
+			V = (*this) * V;
+			return V.qv();
+		}
+
+		[[nodiscard]] constexpr bool is_rotation() const noexcept {
+			return this->squared_norm() == T{1}; //TODO: replace by IsNear
+		}
+
+		Quaternion& normalize() noexcept {
+			gutil::in_place_divide(data, this->norm());
+			return *this;
+		}
+
+		////////////////////////////////////////////////////////////////
+		// In-place arithmetic
+		////////////////////////////////////////////////////////////////
+		constexpr Quaternion& operator+=(const Quaternion& other) noexcept {
+			gutil::in_place_sum<4,T>(data, other.data);
+			return *this;
+		}
+
+		constexpr Quaternion& operator-=(const Quaternion& other) noexcept {
+			gutil::in_place_subtract<4,T>(data, other.data);
+			return *this;
+		}
+
+		constexpr Quaternion& operator-() noexcept {
+			gutil::in_place_negate<4,T>(data);
+			return *this;
+		}
+
+		constexpr Quaternion& operator*=(const Quaternion& other) noexcept {
+			//q0 = q0*other.q0 - dot(qv,other.qv)
+			const T Q0 = data[0]*other.data[0] - (data[1]*other.data[1] + data[2]*other.data[2] + data[3]*other.data[3]);
+
+			//      qv =      q0*other.qv      +      qv*other.q0      +                 qv x other.qv                
+			const T Q1 = data[0]*other.data[1] + data[1]*other.data[0] + data[2]*other.data[3] - data[3]*other.data[2];
+			const T Q2 = data[0]*other.data[2] + data[2]*other.data[0] + data[3]*other.data[1] - data[1]*other.data[3];
+			const T Q3 = data[0]*other.data[3] + data[3]*other.data[0] + data[1]*other.data[2] - data[2]*other.data[1];
+
+			//update data
+			data[0] = Q0; data[1] = Q1; data[2] = Q2; data[3] = Q3;
+			return *this;
+		}
+
+		constexpr Quaternion& operator/=(const Quaternion& other) noexcept {
+			return operator*=(other.inv());
+		}
 	};
 
+	
 
-	//// IMPLEMENTATION
-	template <typename T>
-	constexpr T Quaternion<T>::operator[](int idx) const{
-		assert(0<=idx && idx<4);
-		return idx==0 ? _q0 : _qv[idx-1];
+
+
+	/////////////////////////////////////////////////////////////////////////////
+	//////////////////////// STANDARD BINARY OPERATIONS /////////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+
+	template<IsReal T>
+	[[nodiscard]] inline constexpr Quaternion<T> operator+(Quaternion<T> left, const Quaternion<T>& right) noexcept {
+		return left+=right;
 	}
 
-	template <typename T>
-	constexpr T& Quaternion<T>::operator[](int idx){
-		assert(0<=idx && idx<4);
-		return idx==0 ? _q0 : _qv[idx-1];
+	template<IsReal T>
+	[[nodiscard]] inline constexpr Quaternion<T> operator-(Quaternion<T> left, const Quaternion<T>& right) noexcept {
+		return left-=right;
 	}
 
-	template <typename T>
-	constexpr T Quaternion<T>::q0() const {return _q0;}
-
-	template <typename T>
-	constexpr T& Quaternion<T>::q0() {return _q0;}
-
-	template <typename T>
-	constexpr Point<3,T> Quaternion<T>::qv() const {return _qv;}
-
-	template <typename T>
-	constexpr Point<3,T>& Quaternion<T>::qv() {return _qv;}
-
-	template <typename T>
-	constexpr Quaternion<T> Quaternion<T>::conj() const{
-		return Quaternion(_q0, -_qv);
+	template<IsReal T>
+	[[nodiscard]] inline constexpr Quaternion<T> operator*(Quaternion<T> left, const Quaternion<T>& right) noexcept {
+		return left*=right;
 	}
 
-	template <typename T>
-	constexpr Quaternion<T> Quaternion<T>::inv() const{
-		T C = 1.0/squared_norm();
-		return Quaternion(C*_q0, (-C)*_qv);
-	}
-
-	template <typename T>
-	constexpr T Quaternion<T>::squared_norm() const{
-		return _q0*_q0 + gutil::squared_norm(_qv);
-	}
-
-	template <typename T>
-	constexpr T Quaternion<T>::norm() const{
-		return std::sqrt(squared_norm());
-	}
-
-	template <typename T>
-	constexpr Quaternion<T>& Quaternion<T>::normalize(){
-		T C = 1.0/norm();
-		_q0*=C;
-		_qv*=C;
-		return *this;
-	}
-
-	template <typename T>
-	constexpr Quaternion<T>& Quaternion<T>::setrotation(const T& theta, const Point<3,T>& axis){
-		_q0 = std::cos(0.5*theta);
-		_qv = std::sin(0.5*theta) * gutil::normalized(axis);
-		return *this;
-	}
-
-	template <typename T>
-	constexpr Point<3,T> Quaternion<T>::rotate(const Point<3,T>& point) const {
-		Quaternion V = Quaternion(0.0, point);
-		V = (*this) * (V*conj());
-		return V.qv();
-	}
-
-	template <typename T>
-	constexpr bool Quaternion<T>::is_rotation() const {
-		return gutil::abs(squared_norm() - T{1}) <= T{1e-12};
-	}
-
-	///// ARITHMETIC
-	template <typename T>
-	constexpr Quaternion<T>& Quaternion<T>::operator+=(const Quaternion& other){
-		_q0+=other.q0();
-		_qv+=other.qv();
-		return *this;
-	}
-
-	template <typename T>
-	constexpr Quaternion<T> Quaternion<T>::operator+(const Quaternion& other) const{
-		return Quaternion(_q0+other.q0(), _qv+other.qv());
-	}
-
-	template <typename T>
-	constexpr Quaternion<T>& Quaternion<T>::operator-=(const Quaternion& other){
-		_q0-=other.q0();
-		_qv-=other.qv();
-		return *this;
-	}
-
-	template <typename T>
-	constexpr Quaternion<T> Quaternion<T>::operator-(const Quaternion& other) const{
-		return Quaternion(_q0-other.q0(), _qv-other.qv());
-	}
-
-	template <typename T>
-	constexpr Quaternion<T>& Quaternion<T>::operator*=(const Quaternion& other){
-		T Q0 = _q0*other.q0() - dot(_qv,other.qv());
-		_qv = _q0*other.qv() + other.q0()*_qv + cross(_qv,other.qv());
-		_q0 = Q0;
-		return *this;
-	}
-
-	template <typename T>
-	constexpr Quaternion<T> Quaternion<T>::operator*(const Quaternion& other) const{
-		T Q0 = _q0*other.q0() - dot(_qv,other.qv());
-		Point<3,T>  QV = _q0*other.qv() + other.q0()*_qv + cross(_qv,other.qv());
-		return Quaternion(Q0, QV);
-	}
-
-	template <typename T>
-	constexpr Quaternion<T>& Quaternion<T>::operator/=(const Quaternion& other){
-		operator*=(other.inv());
-		return *this;
-	}
-
-	template <typename T>
-	constexpr Quaternion<T> Quaternion<T>::operator/(const Quaternion& other) const{
-		return operator*(other.inv());
+	template<IsReal T>
+	[[nodiscard]] inline constexpr Quaternion<T> operator/(Quaternion<T> left, const Quaternion<T>& right) noexcept {
+		return left/=right;
 	}
 	
-	template <typename T>
-	constexpr bool Quaternion<T>::operator==(const Quaternion& other) const{
-		if (_q0 != other.q0()){
-			return false;
-		}
-
-		if (_qv != other.qv()){
-			return false;
-		}
-
-		return true;
+	template<IsReal T>
+	[[nodiscard]] inline constexpr Quaternion<T> operator==(Quaternion<T> left, const Quaternion<T>& right) noexcept {
+		return gutil::elements_equal<4,T>(left.data, right.data);
 	}
 
 
-	///Print to ostream.
-	template <typename T>
-	std::ostream& operator<<(std::ostream& os, const Quaternion<T> &quaternion){
-		for (int i = 0; i < 4; i++){
-			os << quaternion[i] << " ";
-		}
+	/////////////////////////////////////////////////////////////////////////////
+	//////////////////////////// UTILITY OPERATIONS /////////////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+	template<IsReal T>
+	std::ostream& operator<<(std::ostream& os, const Quaternion<T>& quaternion){
+		print_to_stream(os, quaternion.data, " ");
 		return os;
 	}
 }

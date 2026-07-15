@@ -1,186 +1,20 @@
 #pragma once
 
+#include "utility/macros.hpp"
+#include "utility/concepts.hpp"
+
 #include <cmath>
 #include <algorithm>
-#include <type_traits>
-#include <concepts>
-#include <span>
 #include <cassert>
-#include <limits>
-
-//////////////////////////////////////////////////////
-/// If OpenMP is present, some operations are provided with 
-/// vectorized versions over spans.
-//////////////////////////////////////////////////////
-#ifdef _OPENMP
-	#include <omp.h>
-#endif
-
-//////////////////////////////////////////////////////
-/// Helper macros.
-//////////////////////////////////////////////////////
-#define GUTIL_STRINGIFY(x) #x
-#define GUTIL_PRAGMA(x) _Pragma(#x)
-
-//////////////////////////////////////////////////////
-/// Macro to disable floating point associativity for functions
-/// that require exact arithmetic order.
-//////////////////////////////////////////////////////
-#if defined(__GNUC__)
-	//linux (gcc) compiler, should work for mac (clang) as well.
-	#define GUTIL_NO_ASSOC_MATH_START _Pragma("GCC push_options") _Pragma("GCC optimize(\"no-associative-math\")")
-	#define GUTIL_NO_ASSOC_MATH_END _Pragma("GCC pop_options")
-#elif defined(_MSC_VER)
-	//microsoft compiler
-	#define GUTIL_NO_ASSOC_MATH_START __pragma(float_control(precise, on, push))
-	#define GUTIL_NO_ASSOC_MATH_END __pragma(float_control(pop))
-#else
-	//unkown compiler
-	#define GUTIL_NO_ASSOC_MATH_START
-	#define GUTIL_NO_ASSOC_MATH_END
-#endif
-
-//////////////////////////////////////////////////////
-/// Macro to help Customization Point Objects have
-/// static operator() methods when possible. CPO is used
-/// for some functions (e.g., sqrt) so that the call order is
-///		user supplied -> std::sqrt -> fallback (cast to double)
-/// If operator() can't be static, it should be const, but
-/// the two are mutually exclusive, so two macros are needed.
-//////////////////////////////////////////////////////
-#ifdef __cpp_static_call_operator
-	#define GUTIL_STATIC_CALL static
-	#define GUTIL_STATIC_CALL_CONST
-#else
-	#define GUTIL_STATIC_CALL
-	#define GUTIL_STATIC_CALL_CONST const
-#endif
-
-//////////////////////////////////////////////////////
-/// Macros to call OpenMP pragmas if compiled with openmp
-//////////////////////////////////////////////////////
-#ifdef _OPENMP
-	#define GUTIL_OMP(...) GUTIL_PRAGMA(omp __VA_ARGS__)
-	#define GUTIL_SIMD(...) GUTIL_PRAGMA(omp simd __VA_ARGS__)
-	#define GUTIL_DECLARE_SIMD(...) GUTIL_PRAGMA(omp declare simd __VA_ARGS__)
-#else
-	#define GUTIL_OMP(...)
-	#define GUTIL_SIMD(...)
-	#define GUTIL_DECLARE_SIMD(...)
-#endif
-
+#include <span>
+#include <functional>
 
 namespace gutil
 {
 	///////////////////////////////////////////////////////////
-	/// A small math library to provide some scalar operations and
-	/// important operations for other data types:
-	///		Point (point.hpp)	-- model points/vectors in space
-	///		Box	(box.hpp)		-- model axis aligned bounding boxes (aabb)
-	/// Some vectorization over spans is availible via OpenMP if supplied.
-	///////////////////////////////////////////////////////////
-
-
-
-	///////////////////////////////////////////////////////////
-	/// Concept to ensure that a type is some form of scalar
-	/// that emulates the real line and will work with the Point class.
-	///
-	/// If a custom scalar type (e.g., a fixed precision type), it
-	/// must satisfy this concept. Note it should have a sqrt() function.
-	/// If it doesn't, it should be castable to/from a double to use 
-	/// std::sqrt as a fallback.
-	///
-	/// Additionally, the std::numeric_limits<T> must be specialized.
-	///////////////////////////////////////////////////////////
-	template<typename T>
-	concept IsScalar = std::numeric_limits<T>::is_specialized && requires(T a, T b) {
-		T{0};
-		T{1};
-		{ a + b } -> std::same_as<T>;
-		{ a - b } -> std::same_as<T>;
-		{ a * b } -> std::same_as<T>;
-		{ a / b } -> std::same_as<T>;
-		{ -a    } -> std::same_as<T>;
-		{ a+=b  } -> std::same_as<T&>;
-		{ a-=b  } -> std::same_as<T&>;
-		{ a*=b  } -> std::same_as<T&>;
-		{ a/=b  } -> std::same_as<T&>;
-		{ a==b  } -> std::same_as<bool>;
-		{ a<b   } -> std::same_as<bool>;
-	};
-
-	///////////////////////////////////////////////////////////
-	/// For some algorithms, we need to know if a scalar type
-	/// is exact, integer, etc. Additionally, values like epsilon, max, lower, etc
-	/// are helpful. Some geometry operations only make sense if the underlying
-	/// scalar emulates the real line.
-	///////////////////////////////////////////////////////////
-	template<typename T>
-	concept IsReal = IsScalar<T> && !std::numeric_limits<T>::is_integer;
-
-	template<typename T>
-	concept IsInteger = IsScalar<T> && std::numeric_limits<T>::is_integer;
-
-	template<typename T>
-	concept IsExact = IsScalar<T> && std::numeric_limits<T>::is_exact;
-
-	template<typename T>
-	concept IsFloatingPoint = IsScalar<T> && !std::numeric_limits<T>::is_integer && !std::numeric_limits<T>::is_exact;
-
-	template<typename T>
-	concept IsFixedPoint = IsScalar<T> && !std::numeric_limits<T>::is_integer && std::numeric_limits<T>::is_exact;
-
-	template<IsScalar T>	//returns the smallest finite value of the given non-floating-point type, or the smallest positive normal value of the given floating-point type 
-	struct GutilMin {static constexpr T value = std::numeric_limits<T>::min();};
-
-	template<IsScalar T>
-	struct GutilLowest {static constexpr T value = std::numeric_limits<T>::lowest();};
-
-	template<IsScalar T>
-	struct GutilMax {static constexpr T value = std::numeric_limits<T>::max();};
-
-	template<IsScalar T>
-	struct GutilEpsilon {static constexpr T value = std::numeric_limits<T>::epsilon();};
-
-
-	///////////////////////////////////////////////////////////
-	/// Define a simple method to combine two hash results
-	/// This allows us to inject hashes for Point, etc into std easily.
-	/// This mimics boost's hash_combine function.
-	/// std::hash<T>{}(key) must return a valid hash.
-	///////////////////////////////////////////////////////////
-	template<typename T>
-	void hash_combine(size_t& seed, const T& key) noexcept {
-		if constexpr (sizeof(size_t) == 4) {
-			seed ^= std::hash<T>{}(key) + 0x9e3779b9U + (seed<<6) + (seed>>2);
-		}
-		else if constexpr (sizeof(size_t) == 8) {
-			seed ^= std::hash<T>{}(key) + 0x9e3779b97f4a7c15ULL + (seed<<6) + (seed>>2);
-		}
-		else {
-			seed ^= std::hash<T>{}(key) + (seed<<6) + (seed>>2);
-		}
-	}
-
-
-	///////////////////////////////////////////////////////////
 	/// Forward declare the various classes. Each class must
-	/// satisfy the GutilGeometryObject concept.
+	/// satisfy the GeometryObject concept.
 	///////////////////////////////////////////////////////////
-	template<typename T>
-	concept GutilGeometryObject = requires {
-		typename std::integral_constant<int, T::DIMENSION>;
-		typename T::scalar_type;
-	} && T::DIMENSION>0;
-
-	template<typename T, typename U>
-	concept GutilCompatibleGeometryObjects = GutilGeometryObject<T>
-		&& GutilGeometryObject<U>
-		&& std::same_as<typename T::scalar_type, typename U::scalar_type>
-		&& (T::DIMENSION == U::DIMENSION);
-
-
 	template<int DIM, IsScalar T> requires (DIM>0)
 	struct Point;	//contains: T data[DIM]
 
@@ -196,16 +30,9 @@ namespace gutil
 	template<int DIM, IsReal T> requires (DIM>0)
 	struct Segment;	//contains: Point<DIM,T> start, end
 
-	///////////////////////////////////////////////////////////
-	/// Use a templated type to trigger conditional compile
-	/// errors (say no valid constexpr branch of an if statement
-	/// was found).
-	///////////////////////////////////////////////////////////
-	template<typename T>
-	inline constexpr bool always_false_v = false;
 
 	///////////////////////////////////////////////////////////
-	//////////////////// SCALAR OPERATIONS ////////////////////
+	/////////////// CUSTOMIZATION POINT OBJECTS ///////////////
 	///////////////////////////////////////////////////////////
 	// use Customization Point Objects to ensure that scalar functions
 	// go in the order of preference: user -> std -> fallback
@@ -231,35 +58,133 @@ namespace gutil
 			}
 		};
 
+		void cos() = delete;
+		struct cos_fn final {
+			template<IsReal T>
+			[[nodiscard]] GUTIL_STATIC_CALL T operator()(const T x) GUTIL_STATIC_CALL_CONST noexcept {
+				if constexpr (requires { cos(x); }) {
+					//ADL user or std::cos
+					return cos(x);
+				}
+				else if constexpr (std::is_convertible_v<T,double>) {
+					//fallback to convert to double and use std::cos
+					return static_cast<T>(std::cos(static_cast<double>(x)));
+				}
+				else {
+					//throw a compile error
+					static_assert(always_false_v<T>, "gutil::cos - no function found");
+				}
+			}
+		};
+
+		void sin() = delete;
+		struct sin_fn final {
+			template<IsReal T>
+			[[nodiscard]] GUTIL_STATIC_CALL T operator()(const T x) GUTIL_STATIC_CALL_CONST noexcept {
+				if constexpr (requires { sin(x); }) {
+					//ADL user or std::sin
+					return sin(x);
+				}
+				else if constexpr (std::is_convertible_v<T,double>) {
+					//fallback to convert to double and use std::sin
+					return static_cast<T>(std::sin(static_cast<double>(x)));
+				}
+				else {
+					//throw a compile error
+					static_assert(always_false_v<T>, "gutil::sin - no function found");
+				}
+			}
+		};
+
+		void tan() = delete;
+		struct tan_fn final {
+			template<IsReal T>
+			[[nodiscard]] GUTIL_STATIC_CALL T operator()(const T x) GUTIL_STATIC_CALL_CONST noexcept {
+				if constexpr (requires { tan(x); }) {
+					//ADL user or std::tan
+					return tan(x);
+				}
+				else if constexpr (std::is_convertible_v<T,double>) {
+					//fallback to convert to double and use std::tan
+					return static_cast<T>(std::tan(static_cast<double>(x)));
+				}
+				else {
+					//throw a compile error
+					static_assert(always_false_v<T>, "gutil::tan - no function found");
+				}
+			}
+		};
+
+		void atan2() = delete;
+		struct atan2_fn final {
+			template<IsReal T>
+			[[nodiscard]] GUTIL_STATIC_CALL T operator()(const T y, const T x) GUTIL_STATIC_CALL_CONST noexcept {
+				if constexpr (requires { atan2(y,x); }) {
+					//ADL user or std::atan2
+					return atan2(y,x);
+				}
+				else if constexpr (std::is_convertible_v<T,double>) {
+					//fallback to convert to double and use std::atan2
+					return static_cast<T>(std::atan2(static_cast<double>(y), static_cast<double>(x)));
+				}
+				else {
+					//throw a compile error
+					static_assert(always_false_v<T>, "gutil::atan2 - no function found");
+				}
+			}
+		};
+
 		void fma() = delete;	//keep the function name lookup in _cpo_ from seeing std::fma
 		struct fma_fn final {
 			template<IsScalar T>
 			[[nodiscard]] GUTIL_STATIC_CALL constexpr T operator()(const T x, const T y, const T z) GUTIL_STATIC_CALL_CONST noexcept {
-				if consteval {
-					//fma is not generally constexpr, so fall back
-					return (x*y) + z;
-				}
-				else {
-					if constexpr (requires { fma(x,y,z); }) {
-					//ADL user or std::fma
-						return fma(x,y,z);
-					}
-					else {
-						//fallback
-						return (x*y) + z;
-					}
-				}
+				if consteval {return fallback(x,y,z);}
+				else {return cpo_fma(x,y,z);}
+			}
+
+			template<IsScalar T>
+			[[nodiscard]] static constexpr T fallback(const T x, const T y, const T z) noexcept {
+				return (x*y) + z;
+			}
+
+			template<IsScalar T>
+			[[nodiscard]] static T cpo_fma(const T x, const T y, const T z) noexcept {
+				if constexpr (requires { fma(x,y,z); }) {return fma(x,y,z);}
+				else {return fallback(x,y,z);}
 			}
 		};
 	}
 
-	/// Allow use of gutil::sqrt() which then calls gutil::_cpo_::sqrt_fn::operator() and
-	/// dispatches (at compile time) to the correct square root function.
-	/// If a user defines usrlib::usr_type and a usrlib::sqrt(usrlib::usr_type) -> usrlib::usr_type,
-	/// then this will be prioritized. Bring other CPOs into gutil as well.
 	inline constexpr _cpo_::sqrt_fn sqrt{};
 	inline constexpr _cpo_::fma_fn fma{};
+	inline constexpr _cpo_::sin_fn sin{};
+	inline constexpr _cpo_::cos_fn cos{};
+	inline constexpr _cpo_::tan_fn tan{};
+	inline constexpr _cpo_::atan2_fn atan2{};
 
+
+	///////////////////////////////////////////////////////////
+	/// Define a simple method to combine two hash results
+	/// This allows us to inject hashes for Point, etc into std easily.
+	/// This mimics boost's hash_combine function.
+	/// std::hash<T>{}(key) must return a valid hash.
+	///////////////////////////////////////////////////////////
+	template<typename T>
+	void hash_combine(size_t& seed, const T& key) noexcept {
+		if constexpr (sizeof(size_t) == 4) {
+			seed ^= std::hash<T>{}(key) + 0x9e3779b9U + (seed<<6) + (seed>>2);
+		}
+		else if constexpr (sizeof(size_t) == 8) {
+			seed ^= std::hash<T>{}(key) + 0x9e3779b97f4a7c15ULL + (seed<<6) + (seed>>2);
+		}
+		else {
+			seed ^= std::hash<T>{}(key) + (seed<<6) + (seed>>2);
+		}
+	}
+
+	///////////////////////////////////////////////////////////
+	///////////////// SIMPLE SCALAR ROUTINES //////////////////
+	///////////////////////////////////////////////////////////
 	GUTIL_DECLARE_SIMD()
 	template<IsScalar T>
 	[[nodiscard]] inline constexpr T max(T x, T y) noexcept {
@@ -296,94 +221,294 @@ namespace gutil
 
 
 	///////////////////////////////////////////////////////////
-	//////////////////// POINT OPERATIONS /////////////////////
+	////////// ROUTINES ON SPANS THAT CAN BE REUSED ///////////
 	///////////////////////////////////////////////////////////
 
 	///////////////////////////////////////////////////////////
-	/// Sum, product, etc. reductions and norms
-	///////////////////////////////////////////////////////////	
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T sum_reduce(const Point<DIM,T>& vec) noexcept {
-		T result{vec.data[0]};
+	/// Component-wise arithmetic
+	///////////////////////////////////////////////////////////
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_sum(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] += right[i];
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_subtract(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] -= right[i];
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_product(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] *= right[i];
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_divide(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			assert(right[i] != T{0});
+			left[i] /= right[i];
+		}
+	}
+
+	template<int DIM, IsInteger T> requires (DIM>0)
+	inline constexpr void in_place_modulo(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] %= right[i];
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_negate(std::span<T,DIM> data) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			data[i] = -data[i];
+		}
+	}
+
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_sum(std::span<T,DIM> left, const T right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] += right;
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_subtract(std::span<T,DIM> left, const T right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] -= right;
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_product(std::span<T,DIM> left, const T right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] *= right;
+		}
+	}
+
+	template<int DIM, IsReal T> requires (DIM>0)
+	inline constexpr void in_place_division(std::span<T,DIM> left, const T right) noexcept {
+		assert(right != T{0});
+		const T r_inv = T{1}/right;
+		gutil::in_place_product(left, r_inv);
+	}
+
+	template<int DIM, IsInteger T> requires (DIM>0)
+	inline constexpr void in_place_division(std::span<T,DIM> left, const T right) noexcept {
+		assert(right != T{0});
+		for (int i=0; i<DIM; ++i) {
+			left[i] /= right;
+		}
+	}
+
+	template<int DIM, IsInteger T> requires (DIM>0)
+	inline constexpr void in_place_modulo(std::span<T,DIM> left, const T right) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			left[i] %= right;
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_clamp(std::span<T,DIM> data, std::span<const T,DIM> lo, std::span<const T,DIM> hi) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			data[i] = gutil::clamp(data[i], lo[i], hi[i]);
+		}
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	inline constexpr void in_place_clamp(std::span<T,DIM> data, T lo, T hi) noexcept {
+		for (int i=0; i<DIM; ++i) {
+			data[i] = gutil::clamp(data[i], lo, hi);
+		}
+	}
+
+
+	///////////////////////////////////////////////////////////
+	/// Comparisons
+	///////////////////////////////////////////////////////////
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool cone_compare_less_than(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		// return true if left[i] < right[i] for all i
+		for (int i=0; i<DIM; ++i) {
+			if (left[i] >= right[i]) {return false;}
+		}
+		return true;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool cone_compare_less_than_equal(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		// return true if left[i] <= right[i] for all i
+		for (int i=0; i<DIM; ++i) {
+			if (left[i] > right[i]) {return false;}
+		}
+		return true;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool cone_compare_greater_than(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		// return true if left[i] > right[i] for all i
+		for (int i=0; i<DIM; ++i) {
+			if (left[i] <= right[i]) {return false;}
+		}
+		return true;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool cone_compare_greater_than_equal(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		// return true if left[i] >= right[i] for all i
+		for (int i=0; i<DIM; ++i) {
+			if (left[i] < right[i]) {return false;}
+		}
+		return true;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool elements_equal(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		// return true if left[i] == right[i] for all i
+		for (int i=0; i<DIM; ++i) {
+			if (left[i] != right[i]) {return false;}
+		}
+		return true;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool lexicographic_less_than(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		// return true if there exists an I such that left[I] < right[I] and left[i] == right[i] for all i<I
+		for (int i=0; i<DIM; ++i) {
+			if (left[i] < right[i]) {return true;}
+			if (right[i] < left[i]) {return false;}
+		}
+		return false;
+	}
+
+	///////////////////////////////////////////////////////////
+	/// Reductions and norms
+	///////////////////////////////////////////////////////////
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T sum_reduce(std::span<const T,DIM> data) noexcept {
+		T result{data[0]};
 		for (int i=1; i<DIM; ++i) {
-			result += vec.data[i];
+			result += data[i];
 		}
 		return result;
 	}
 
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T product_reduce(const Point<DIM,T>& vec) noexcept {
-		T result{vec.data[0]};
+	GUTIL_NO_ASSOC_MATH_START
+	template<int DIM, IsScalar T, IsScalar U=T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T kahan_sum_reduce(std::span<const T,DIM> data) noexcept {
+		U aa{0};	//accumulator
+		U cc{0};	//compensation
+		U yy, tt;	//intermediates
+
+		for (int i=0; i<DIM; ++i) {
+			yy = static_cast<U>(data[i]) - cc;
+			tt = aa + yy;
+			cc = (tt - aa) - yy;
+			aa = tt;
+		}
+		return static_cast<T>(aa);
+	}
+	GUTIL_NO_ASSOC_MATH_START
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T product_reduce(std::span<const T,DIM> data) noexcept {
+		T result{data[0]};
 		for (int i=1; i<DIM; ++i) {
-			result *= vec.data[i];
+			result *= data[i];
 		}
 		return result;
 	}
 
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T max_reduce(const Point<DIM,T>& vec) noexcept {
-		T result{vec.data[0]};
-
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T max_reduce(std::span<const T,DIM> data) noexcept {
+		T result{data[0]};
 		for (int i=1; i<DIM; ++i) {
-			result = gutil::max(result, vec.data[i]);
+			result = gutil::max(result, data[i]);
 		}
 		return result;
 	}
 
 	/// get the minimum value
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T min_reduce(const Point<DIM,T>& vec) noexcept {
-		T result{vec.data[0]};
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T min_reduce(std::span<const T,DIM> data) noexcept {
+		T result{data[0]};
 		for (int i=1; i<DIM; ++i) {
-			result = gutil::min(result, vec.data[i]);
+			result = gutil::min(result, data[i]);
 		}
 		return result;
 	}
 
 	/// get the minimum absolute value
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T min_abs_reduce(const Point<DIM,T>& vec) noexcept {
-		T result{gutil::abs(vec.data[0])};
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T min_abs_reduce(std::span<const T,DIM> data) noexcept {
+		T result{gutil::abs(data[0])};
 		for (int i=1; i<DIM; ++i) {
-			result = gutil::min(result, gutil::abs(vec.data[i]));
+			result = gutil::min(result, gutil::abs(data[i]));
+		}
+		return result;
+	}
+
+	/// get the dot product
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T dot_product_reduce(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		T result{left[0]*right[0]};
+		for (int i=1; i<DIM; ++i) {
+			result = gutil::fma(left[i], right[i], result);
 		}
 		return result;
 	}
 
 	/// infinity norm
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T norminfty(const Point<DIM,T>& vec) noexcept {
-		T result{gutil::abs(vec.data[0])};
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T norminfty(std::span<const T,DIM> data) noexcept {
+		T result{gutil::abs(data[0])};
 		for (int i=1; i<DIM; ++i) {
-			result = gutil::max(result, gutil::abs(vec.data[i]));
+			result = gutil::max(result, gutil::abs(data[i]));
 		}
 		return result;
 	}
 
 	/// 1-norm
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T norm1(const Point<DIM,T>& vec) noexcept {
-		T result{gutil::abs(vec.data[0])};
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T norm1(std::span<const T,DIM> data) noexcept {
+		T result{gutil::abs(data[0])};
 		for (int i=1; i<DIM; ++i) {
-			result += gutil::abs(vec.data[i]);
+			result += gutil::abs(data[i]);
 		}
 		return result;
 	}
 
 	/// squared 2-norm
-	template<int DIM, IsScalar T> requires(DIM>0)
-	[[nodiscard]] inline constexpr T squared_norm(const Point<DIM,T>& vec) noexcept {
-		T result{vec.data[0]*vec.data[0]};
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T squared_norm(std::span<const T,DIM> data) noexcept {
+		T result{data[0]*data[0]};
 		for (int i=1; i<DIM; ++i) {
-			result = gutil::fma(vec.data[i], vec.data[i], result);
+			result = gutil::fma(data[i], data[i], result);
 		}
 		return result;
 	}
 
 	/// 2-norm
-	template<int DIM, IsReal T> requires(DIM>0)
-	[[nodiscard]] inline T norm2(const Point<DIM,T>& vec) noexcept {
-		return gutil::sqrt(gutil::squared_norm(vec));
+	template<int DIM, IsReal T> requires (DIM>0)
+	[[nodiscard]] inline T norm2(std::span<const T,DIM> data) noexcept {
+		return gutil::sqrt(gutil::squared_norm(data));
+	}
+
+	/// sum of squared differences/errors
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T sum_square_error(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
+		T result{0};
+		for (int i=0; i<DIM; ++i) {
+			const T dd = left[i] - right[i];
+			result = gutil::fma(dd, dd, result);
+		}
+		return result;
 	}
 
 	///////////////////////////////////////////////////////////
@@ -416,9 +541,7 @@ namespace gutil
 	///////////////////////////////////////////////////////////
 	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		T result{left.data[0]*right.data[0]};
-		for (int i=1; i<DIM; ++i) {result = gutil::fma(left.data[i], right.data[i], result);}
-		return result;
+		return gutil::dot_product_reduce<DIM,T>(left.data, right.data);
 	}
 
 	template<IsScalar T>
@@ -438,8 +561,8 @@ namespace gutil
 	}
 
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] inline constexpr T distance_squared(const Point<DIM,T>& a, const Point<DIM,T>& b) noexcept {
-		return gutil::squared_norm(a-b);
+	[[nodiscard]] inline constexpr T distance_squared(const Point<DIM,T>& A, const Point<DIM,T>& B) noexcept {
+		return gutil::sum_square_error<DIM,T>(A.data, B.data);
 	}
 
 	///////////////////////////////////////////////////////////
@@ -477,21 +600,34 @@ namespace gutil
 	}
 
 	/// Project/clamp a point to a box
-	template<int DIM, IsScalar T> requires(DIM>0)
+	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& point, const Box<DIM,T>& box) noexcept {
 		return gutil::clamp(point, box.low, box.high);
+	}
+
+	/// Project/clamp a point to a box periodically
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> clamp_periodic(const Point<DIM,T>& point, const Box<DIM,T>& box) noexcept {
+		if constexpr (IsInteger<T>) {
+			return box.low + (point - box.low)%(box.high - box.low);
+		}
+		else {
+			return box.low + (point - box.low)/(box.high - box.low);
+		}
 	}
 
 	/// Return the squared distance from a point to the box.
 	/// The distance is 0 if the point is contained in the box.
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& box, const Point<DIM,T>& point) noexcept {
-		const Point<DIM,T> clamped = gutil::clamp(point, box);
-		return gutil::squared_norm(point - clamped);
+	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& A, const Point<DIM,T>& B) noexcept {
+		// clamp the point to the box, then get the distance
+		return gutil::distance_squared(gutil::clamp(B, A), B);
 	}
 
 	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		// record the gap (if any) along each axis and then sum the squares.
+		//		[   A - axis[i]    ] <---- gap = B.low - A.high ----> [    B - axis[i]   ]
 		T dd{0};
 		for (int i=0; i<DIM; ++i) {
 			const T gap = gutil::max(T{0}, A.low.data[i] - B.high.data[i], B.low.data[i] - A.high.data[i]);
@@ -582,7 +718,7 @@ namespace gutil
 		const T dd = aa*bb - cc*cc;											//non-negative (Cauchy-Schwarz: |A*B| <= |A|*|B|)
 
 		//check if the lines are parallel (dd==0)
-		constexpr T tol = (IsExact<T>) ? T{0} : T{4} * GutilEpsilon<T>::value;
+		constexpr T tol = (IsExact<T>) ? T{0} : T{4} * Epsilon<T>::value;
 		if (dd <= tol) {
 			//lines are parallel
 			t = 0;	//origin of B
@@ -678,8 +814,8 @@ namespace gutil
 	
 	template<int DIM, IsReal T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool intersect(const Box<DIM,T>& box, const Line<DIM,T>& inv_line, T& t_enter, T& t_exit) noexcept {
-		t_enter = GutilLowest<T>::value;
-		t_exit = GutilMax<T>::value;
+		t_enter = Lowest<T>::value;
+		t_exit = Max<T>::value;
 
 		for (int i=0; i<DIM; ++i) {
 			//t values for the two faces of 'slab' with normal axis i
@@ -756,7 +892,7 @@ namespace gutil
 	{
 		void distance_squared() = delete;
 		struct distance_squared_fn final {
-			template<GutilGeometryObject T, GutilGeometryObject U> requires GutilCompatibleGeometryObjects<T,U>
+			template<GeometryObject T, GeometryObject U> requires CompatibleGeometryObjects<T,U>
 			[[nodiscard]] GUTIL_STATIC_CALL constexpr typename T::scalar_type operator()(const T& A, const U& B) GUTIL_STATIC_CALL_CONST noexcept {
 				if constexpr (HasDistanceSquared<T,U>) {
 					//ADL found a matching function
@@ -774,7 +910,7 @@ namespace gutil
 
 		void distance() = delete;
 		struct distance_fn final {
-			template<GutilGeometryObject T, GutilGeometryObject U> requires (GutilCompatibleGeometryObjects<T,U> && IsReal<typename T::scalar_type>)
+			template<GeometryObject T, GeometryObject U> requires (CompatibleGeometryObjects<T,U> && IsReal<typename T::scalar_type>)
 			[[nodiscard]] GUTIL_STATIC_CALL typename T::scalar_type operator()(const T& A, const U& B) GUTIL_STATIC_CALL_CONST noexcept {
 				if constexpr (HasDistance<T,U>) {
 					//ADL found a matching function
@@ -803,12 +939,10 @@ namespace gutil
 	inline constexpr _cpo_::distance_fn distance{};
 
 	/// Define a lexicographic ordering for use in std::sort and such.
-	template<GutilGeometryObject T> requires(requires(const T& a, const T& b) { lexicographic_less(a,b); })
+	template<GeometryObject T> requires(requires(const T& a, const T& b) { lexicographic_less(a,b); })
 	struct LexicographicLess {
-		[[nodiscard]] GUTIL_STATIC_CALL bool operator()(const T& left, const T& right) GUTIL_STATIC_CALL_CONST noexcept {
+		[[nodiscard]] GUTIL_STATIC_CALL constexpr bool operator()(const T& left, const T& right) GUTIL_STATIC_CALL_CONST noexcept {
 			return lexicographic_less(left, right);
 		}
 	};
-
-
 }

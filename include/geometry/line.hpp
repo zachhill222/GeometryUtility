@@ -1,24 +1,21 @@
 #pragma once
 
-#include "math/gutilmath.hpp"
+#include "utility/utility.hpp"
+#include "math/math.hpp"
 #include "geometry/point.hpp"
 
 #include <iostream>
 #include <cassert>
-
-
-
-
-
+#include <functional>
 
 
 namespace gutil
 {
 	template<typename T>
-	concept IsLine = GutilGeometryObject<T> && std::same_as<T, Line<T::DIMENSION, typename T::scalar_type>>;
+	concept IsLine = GeometryObject<T> && std::same_as<T, Line<T::DIMENSION, typename T::scalar_type>>;
 
 	template<typename T>
-	concept IsRay = GutilGeometryObject<T> && std::same_as<T, Ray<T::DIMENSION, typename T::scalar_type>>;
+	concept IsRay = GeometryObject<T> && std::same_as<T, Ray<T::DIMENSION, typename T::scalar_type>>;
 
 	//////////////////////////////////////////////////////////
 	/// A class for lines in cartesian space
