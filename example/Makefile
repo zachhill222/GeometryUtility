@@ -8,8 +8,8 @@ DEBUG      = -pg -g -Wall
 
 #redefine for testing optimizations
 OPT        = -O3
-# PAR        = -fopenmp
-# DEBUG      = -DNDEBUG
+PAR        = -fopenmp
+DEBUG      = -DNDEBUG
 
 #final compiler command
 CC = $(CXX) $(OPT) $(PAR) $(DEBUG)
@@ -29,7 +29,10 @@ point: FORCE
 point_parallel: FORCE
 	${CC} ${INCLUDE} ${DEFINES} point_parallel.cpp -o point_parallel
 
+point_octree: FORCE
+	${CC} ${INCLUDE} ${DEFINES} point_octree.cpp -o point_octree
+
 FORCE:
 
 clean:
-	rm -f point point_parallel *.out
+	rm -f point point_parallel point_octree *.out

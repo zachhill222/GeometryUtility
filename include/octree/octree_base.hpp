@@ -7,6 +7,7 @@
 #include "geometry/box.hpp"
 
 #include "memory/hetero_slab_allocator.hpp"
+#include "algorithms/sorting.hpp"
 
 #include "octree/node.hpp"
 
@@ -17,6 +18,8 @@
 #include <cassert>
 #include <type_traits>
 #include <thread>
+#include <atomic>
+#include <mutex>
 
 namespace gutil
 {
@@ -101,9 +104,6 @@ namespace gutil
 		static_assert(IsReal<scalar_type>, "OctreeBase - the scalar type must emulate the real numbers");
 
 		static constexpr Opts OPTS{};	//capture the compile time options (part of the type)
-		// static constexpr bool GUTIL_HAS_DISTANCE_SQUARED = HasDistanceSquared<point_type,value_type>;
-		// static constexpr bool GUTIL_HAS_DISTANCE = HasDistance<point_type,value_type>;
-		// static constexpr bool TREE_HAS_DISTANCE = Derived::HAS_DISTANCE || GUTIL_HAS_DISTANCE_SQUARED || GUTIL_HAS_DISTANCE;
 
 		//define a struct for useful debug information
 		struct OctreeStats {
@@ -127,6 +127,11 @@ namespace gutil
 		std::vector<value_type> _data_;
 
 	private:
+		static constexpr int MAX_THREADS = 2; //TODO: make a thread pool to share with the sorting algorithm
+		static constexpr size_t SPAWN_THREAD_THRESHOLD = 512;
+		std::atomic<int> n_threads{0};
+		mutable std::mutex mtx;
+
 		//make allocator for less fragmented node storage and some convenience contructors
 		HeteroSlabAllocator<internal_node_type,leaf_node_type> _alloc_{};
 
@@ -258,7 +263,9 @@ namespace gutil
 		//bounding box will be inserted, but the order may not be preserved.
 		void batch_insert(std::span<value_type> values) {
 			filter_to_bbox(values);
+			n_threads = 1;
 			batch_insert_recursive(root->t_ptr(), values);
+			n_threads = 0;
 		}
 
 		void batch_insert(std::span<const value_type> values) {
@@ -366,17 +373,6 @@ namespace gutil
 			assert(index < _data_.size());
 			return gutil::distance_squared(point, _data_[index]);
 		}
-
-		//lookup the distance_squared function from gutil (only if the distance is not provided by Derived)
-		// scalar_type distance_squared(const point_type& point, const value_type& value) const 
-		// 	requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
-		// 	return gutil::distance_squared(point, value);
-		// }
-
-		// scalar_type distance_squared(const point_type& point, const index_type index) const 
-		// 	requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
-		// 	return gutil::distance_squared(point, _data_[index]);
-		// }
 
 		//pass checking if a leaf contains a value to the derived class (necessary if the leaf stores indices)
 		bool leaf_contains(const leaf_node_type* leaf, const value_type& value) const {
@@ -617,8 +613,12 @@ namespace gutil
 		}
 
 		//the data is new
-		index_type idx = _data_.size();
-		_data_.push_back(std::move(value));
+		index_type idx;
+		{
+			std::lock_guard<std::mutex> lock(mtx);
+			idx = _data_.size();
+			_data_.push_back(std::move(value));
+		}
 
 		if constexpr (!O::VOLUME_DATA) {
 			insert_recursive(leaf->t_ptr(), _data_[idx], idx);
@@ -685,8 +685,12 @@ namespace gutil
 				//insert data if there is room
 				for (value_type& value : values) {
 					if (!leaf_contains(leaf, value)) {
-						index_type idx = _data_.size();
-						_data_.push_back(std::move(value));
+						index_type idx;
+						{
+							std::lock_guard<std::mutex> lock(mtx);
+							idx = _data_.size();
+							_data_.push_back(std::move(value));
+						}
 						leaf->insert(idx);
 					}
 				}
@@ -698,40 +702,36 @@ namespace gutil
 			}
 		}
 		else {
-			//TODO: do some sort of bin sort
-			// const box_type& box = internal->bbox;
-			// const point_type cntr = box.center();
-
-			// //partition data into bins for each child
-			// const size_t N = values.size();
-			// std::array<size_t, O::N_CHILDREN+1> boundary{};
-			// std::vector<int> to_child(values.size());
-			// for (size_t i=0; i<N; ++i) {
-			// 	int c_idx = 0;
-			// 	const point_type val_pt = get_point(values[i]);
-			// 	for (int j=0; j<O::DIMENSION; ++j) {
-			// 		if (val_pt[j] > cntr[j]) { c_idx |= (1 << j);}
-			// 	}
-
-			// 	to_child[i] = c_idx;
-			// 	boundary[c_idx] += 1; //just record the number in the bin for now
-			// }
-
-			// //adjust to get the boundary (after values are sorted)
-			// for (size_t i=1; i<boundary.size(); ++i) {
-			// 	boundary[i] += boundary[i-1];
-			// }
-
-			// //sort values by increasing child number
-
 			internal_node_type* internal = static_cast<internal_node_type*>(node);
-			auto first = values.begin();
-			for (tag_ptr_type c_ptr : *internal) {
-				const box_type& box = get_box(c_ptr);
-				auto pred = [&](const value_type& value){return intersects(box, value);};
-				auto last  = std::partition(first, values.end(), pred);
-				batch_insert_recursive(c_ptr, std::span<value_type>{first, last});
-				first = last;
+			const box_type& box = internal->bbox;
+			const point_type cntr = box.center();
+			auto pred = [&cntr, this](const value_type& val) {
+				return internal_node_type::octant(cntr, this->get_point(val));
+			};
+
+			gutil::BinSort sorter{values, O::N_CHILDREN};
+			sorter.sort(pred);
+			std::vector<std::thread> threads;
+			for (int c_idx=0; c_idx<O::N_CHILDREN; ++c_idx) {
+				auto c_ptr = internal->children[c_idx];
+
+				const bool spawn_thread = (c_idx!=O::N_CHILDREN-1) && 
+						(sorter.bin_size(c_idx)>SPAWN_THREAD_THRESHOLD) && (n_threads<MAX_THREADS);
+
+				if (spawn_thread) {
+					++n_threads;
+					std::span<value_type> child_data = sorter.get_bin(c_idx);
+					auto fun = [this, child_data, c_ptr]() {this->batch_insert_recursive(c_ptr, child_data); };
+					threads.emplace_back(fun);
+				}
+				else {
+					batch_insert_recursive(c_ptr, sorter.get_bin(c_idx));
+				}
+			}
+
+			for (auto& t : threads) {
+				t.join();
+				--n_threads;
 			}
 		}
 	}

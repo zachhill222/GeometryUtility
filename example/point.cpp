@@ -199,7 +199,7 @@ int main(int argc, char** argv) {
 	test_standard_sum(points);
 	// test_sorted_sum(points);
 	test_kahan_sum(points);
-	construct_unordered_set(points);
+	// construct_unordered_set(points);
 	auto tree = move_to_octree(points);
 	test_octree_find(tree);
 	auto tree_near = find_nearest_octree(tree, query);
@@ -211,6 +211,8 @@ int main(int argc, char** argv) {
 
 	std::cout << "\nQuery points:\n";
 	gutil::print_to_stream(std::cout, std::span<const point_type>(query.begin(), query.begin()+5), "\n");
+
+	return 0;
 }
 
 

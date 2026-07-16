@@ -20,32 +20,32 @@ namespace gutil
 	}
 
 	//class for octree compile time options
-	template<typename ValueType, bool VolumeData, size_t MaxData, size_t Dimension, typename ScalarT>
+	template<typename ValueType, bool VolumeData, int MaxData, int DIM, typename ScalarT>
 	struct NodeOpts
 	{
-		static constexpr size_t DIM 		  = Dimension;
-		static constexpr size_t MAX_DATA 	  = MaxData;
-		static constexpr size_t N_CHILDREN 	  = (1 << Dimension);
+		static constexpr int DIMENSION 		  = DIM;
+		static constexpr int MAX_DATA 	  = MaxData;
+		static constexpr int N_CHILDREN 	  = (1 << DIM);
 		static constexpr bool   VOLUME_DATA   = VolumeData;
 
 		using value_type 	= ValueType;
-		using point_type 	= Point<DIM,ScalarT>;
-		using box_type 		= Box<DIM,ScalarT>;
+		using point_type 	= Point<DIMENSION,ScalarT>;
+		using box_type 		= Box<DIMENSION,ScalarT>;
 		using scalar_type 	= ScalarT;
 		using index_type    = size_t;
 
 		//ensure that the scalar_type is reasonable
 		static_assert(std::convertible_to<scalar_type,double>);
 		static_assert(MAX_DATA > 0);
-		static_assert(DIM > 0);
+		static_assert(DIMENSION > 0);
 	};
 
 	//concept to help pass compile time node options
 	template<typename T>
 	concept IsNodeOpts = requires {
-		{T::DIM} -> std::convertible_to<size_t>;
-		{T::MAX_DATA} -> std::convertible_to<size_t>;
-		{T::N_CHILDREN} -> std::convertible_to<size_t>;
+		{T::DIMENSION} -> std::convertible_to<int>;
+		{T::MAX_DATA} -> std::convertible_to<int>;
+		{T::N_CHILDREN} -> std::convertible_to<int>;
 		{T::VOLUME_DATA} -> std::convertible_to<bool>;
 		typename T::value_type;
 		typename T::point_type;
@@ -140,25 +140,46 @@ namespace gutil
 		box_type bbox;
 
 		//track depth
-		uint8_t depth{0};
+		uint8_t depth{0}; //TODO: remove and track in recursive functions
 
 		//always have a parent (except for the root)
 		InternalNode<Opts>* parent{nullptr};
 
 		//get the box of a child node
-		box_type child_box(const size_t n) const {
+		[[nodiscard]] box_type child_box(const int n) const noexcept {
 			assert(n<Opts::N_CHILDREN);
 
 			//the bits of the child number encode the high/low side of the corresponding axis
-			const point_type& low = bbox.low;
-			const point_type& high = bbox.high;
 			const point_type center = bbox.center();
-			point_type vertex = low;
-			for (size_t ax=0; ax<Opts::DIM; ++ax) {
-				if ( n & (size_t{1} << ax) ) {vertex[ax] = high[ax];}
+			point_type vertex{bbox.low};
+			for (int ax=0; ax<Opts::DIMENSION; ++ax) {
+				if ( n & (int{1} << ax) ) {vertex[ax] = bbox.high[ax];}
 			}
 
 			return {center, vertex};
+		}
+
+		//get a specific bit of the octant/child belongs to. one corresponds to the positive side.
+		//axis 0 is the first bit, axis 1 is the second and so on. ties go to the lower side.
+		GUTIL_DECLARE_SIMD()
+		[[nodiscard]] static constexpr bool octant_bit(scalar_type cntr, scalar_type query) noexcept {
+			return query > cntr;
+		}
+
+		GUTIL_DECLARE_SIMD()
+		[[nodiscard]] static constexpr bool octant_bit(int octant, int axis) noexcept {
+			assert(0<= axis && axis<Opts::DIMENSION);
+			assert(0<=octant && octant<Opts::N_CHILDREN);
+			return octant & (int(1)<<axis);
+		}
+
+		//get the octant/child that a point belongs to
+		[[nodiscard]] static constexpr int octant(const point_type& cntr, const point_type& query) noexcept {
+			int n=0;
+			for (int i=0; i<Opts::DIMENSION; ++i) {
+				if (octant_bit(cntr.data[i], query.data[i])) {n |= (int{1} << i);} 
+			}
+			return n;
 		}
 	};
 
@@ -168,7 +189,7 @@ namespace gutil
 	{
 		//save options
 		using OPTS = Opts;
-		static constexpr size_t MAX_DATA = Opts::MAX_DATA;
+		static constexpr int MAX_DATA = Opts::MAX_DATA;
 		static constexpr uintptr_t TAG 	 = NodeTag::LEAF;
 
 		//save aliases
@@ -184,7 +205,7 @@ namespace gutil
 
 		//store data and cursor
 		std::array<index_type, MAX_DATA> data;
-		size_t cursor{0};
+		int cursor{0};
 
 		//iterators for easier looping over the data
 		auto begin() const {return data.cbegin();}
@@ -195,14 +216,14 @@ namespace gutil
 		//simple queries
 		bool full() const {return cursor>=MAX_DATA;}
 		bool empty() const {return cursor==0;}
-		size_t size() const {return cursor;}
+		size_t size() const {return static_cast<size_t>(cursor);}
 		bool contains(const index_type& index) const {
 			for (size_t i=0; i<cursor; ++i) {
 				if (data[i]==index) {return true;}
 			}
 			return false;
 		}
-		size_t remaining_capacity() const {return MAX_DATA-cursor;}
+		size_t remaining_capacity() const {return static_cast<size_t>(MAX_DATA-cursor);}
 
 		//move data into the leaf
 		void insert(const index_type index) {
@@ -231,9 +252,9 @@ namespace gutil
 	{
 		//save options
 		using OPTS = Opts;
-		static constexpr size_t DIM        = Opts::DIM;
-		static constexpr size_t N_CHILDREN = Opts::N_CHILDREN;
-		static constexpr uintptr_t TAG     = NodeTag::INTERNAL;
+		static constexpr int DIMENSION  = Opts::DIMENSION;
+		static constexpr int N_CHILDREN = Opts::N_CHILDREN;
+		static constexpr uintptr_t TAG  = NodeTag::INTERNAL;
 
 		//save aliases
 		using base_type   = NodeBase<Opts>;
@@ -261,20 +282,13 @@ namespace gutil
 		//construct child nodes as leafs given an allocator
 		template<typename Allocator>
 		void construct_child_leafs(Allocator& _alloc_) {
-			const point_type& low = bbox.low;
-			const point_type& high = bbox.high;
 			const point_type center = bbox.center();
 
 			using leaf_type = LeafNode<Opts>;
 			//the bits of the child number encode the octant that it owns
 			//ex. if n = (011)_2, then it is the 'high' side of axis 0 and 1, but the 'low' side of axis 2
 			for (size_t n=0; n<N_CHILDREN; ++n) {
-				point_type vertex = low;
-				for (size_t ax=0; ax<DIM; ++ax) {
-					if (n & (size_t{1}<<ax)) {
-						vertex[ax] = high[ax];
-					}
-				}
+				point_type vertex = bbox.voxelvertex(n); //same bit operations
 
 				leaf_type* leaf = _alloc_.construct(box_type{vertex, center});
 				leaf->depth = this->depth + 1;

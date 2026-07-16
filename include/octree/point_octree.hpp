@@ -41,7 +41,7 @@ namespace gutil {
 			return gutil::squared_norm(point-value);
 		}
 
-		point_type get_point_imp(const value_type& value) const {
+		point_type get_point_impl(const value_type& value) const {
 			return value;;
 		}
 	};

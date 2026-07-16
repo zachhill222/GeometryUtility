@@ -6,6 +6,9 @@
 #include <memory>
 #include <type_traits>
 
+#include <mutex>
+#include <atomic>
+
 namespace gutil
 {
 	//A homogeneous slab allocator. Stores a linked list of "slabs" with constant size and number of "slots" to store data.
@@ -18,13 +21,17 @@ namespace gutil
 		static constexpr size_t BYTES_PER_SLAB = SLOTS_PER_SLAB * sizeof(T);
 		static_assert(SLOTS_PER_SLAB >=2, "SlabPool: T is too large for the slab size");
 		
+		//ensure that multiple threads don't try to allocate simultaneously
+		//TODO: make a thread pool version
+		mutable std::mutex mtx;
+
 		//single linked list of slab/block storage
 		struct Slab
 		{
 			//primary storage
 			alignas(T) std::byte storage[BYTES_PER_SLAB];
 			Slab* next = nullptr;
-			
+
 			T* slot(const size_t i) noexcept {
 				assert(i < SLOTS_PER_SLAB);
 				//make sure the compiler doesn't do any unexpected optimizations
@@ -43,6 +50,8 @@ namespace gutil
 
 		//allocate a new T object and return a pointer to it
 		[[nodiscard]] T* allocate() {
+			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
+
 			if (_free_head_) {
 				//we are pointing to a free slot
 				FreeSlot* slot = _free_head_;
@@ -70,6 +79,8 @@ namespace gutil
 
 		//deallocate an object and add its slot to the free list
 		void deallocate(T* p) noexcept {
+			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
+			
 			assert(p != nullptr);
 			//get pointer to the start of the slot (as a FreeSlot)
 			FreeSlot* f = reinterpret_cast<FreeSlot*>(p);
@@ -92,6 +103,7 @@ namespace gutil
 
 		//release the slabs. does not invoke destructors of objects, but does return the memory blocks to the system.
 		void release() noexcept {
+			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
 			Slab* s = _slab_head_;
 			while (s) {
 				Slab* next = s->next;
@@ -105,6 +117,9 @@ namespace gutil
 
 		//move the resources of another slab pool to this
 		void join(SlabPool&& other) noexcept {
+			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
+			std::lock_guard<std::mutex> lock2(other.mtx);	//TODO: make a better lock-free allocator
+
 			if (other._slab_head_ == nullptr) {return;} //no resources to take
 
 			//get the tail of the other slab list, point the this slab list to the tail
@@ -128,6 +143,8 @@ namespace gutil
 
 		//count the number of slabs
 		size_t n_slabs() const {
+			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
+
 			size_t n = 0;
 			auto head = _slab_head_;
 			while (head) {
@@ -153,6 +170,8 @@ namespace gutil
 		//moving is ok
 		SlabPool(SlabPool&& other) noexcept {join(std::move(other));}
 		SlabPool& operator=(SlabPool&& other) noexcept {
+			//TODO: technically this isn't thread safe.
+			//the lock is data could be added between relese and join
 			if (this != &other) {
 				release();
 				join(std::move(other));
