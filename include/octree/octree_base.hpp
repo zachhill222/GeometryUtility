@@ -61,7 +61,7 @@ namespace gutil
 
 		// maintenance
 		{ tree.clear() };
-	};
+	} && IsReal<typename T::point_type::scalar_type>;
 
 	template<typename T>
 	concept IsOctreeWithDistance =
@@ -98,11 +98,12 @@ namespace gutil
 		using point_type  	= typename Opts::point_type;	//type of spatial points
 		using box_type	  	= typename Opts::box_type;		//type of spatial axis-aligned-bounding-boxes
 		using scalar_type 	= typename Opts::scalar_type;	//type that emulates real numbers for the spatial points and aabb
+		static_assert(IsReal<scalar_type>, "OctreeBase - the scalar type must emulate the real numbers");
 
 		static constexpr Opts OPTS{};	//capture the compile time options (part of the type)
-		static constexpr bool GUTIL_HAS_DISTANCE_SQUARED = HasDistanceSquared<point_type,value_type>;
-		static constexpr bool GUTIL_HAS_DISTANCE = HasDistance<point_type,value_type>;
-		static constexpr bool TREE_HAS_DISTANCE = Derived::HAS_DISTANCE || GUTIL_HAS_DISTANCE_SQUARED || GUTIL_HAS_DISTANCE;
+		// static constexpr bool GUTIL_HAS_DISTANCE_SQUARED = HasDistanceSquared<point_type,value_type>;
+		// static constexpr bool GUTIL_HAS_DISTANCE = HasDistance<point_type,value_type>;
+		// static constexpr bool TREE_HAS_DISTANCE = Derived::HAS_DISTANCE || GUTIL_HAS_DISTANCE_SQUARED || GUTIL_HAS_DISTANCE;
 
 		//define a struct for useful debug information
 		struct OctreeStats {
@@ -274,13 +275,13 @@ namespace gutil
 		}
 
 		//find the nearest data to a point
-		index_type nearest(const point_type& point) const requires (TREE_HAS_DISTANCE) {
+		index_type nearest(const point_type& point) const requires (Derived::HAS_DISTANCE) {
 			if (_data_.empty()) {
 				return index_type(-1);
 			}
 			else {
 				index_type index = 0;
-				scalar_type dist2 = gutil::distance_squared(point, _data_[index]);
+				scalar_type dist2 = this->distance_squared(point, _data_[index]);
 				nearest_recursive(root->t_ptr(), point, index, dist2);
 				return index;
 			}
@@ -349,6 +350,11 @@ namespace gutil
 			return intersects(box, _data_[index]);
 		}
 
+		//for point data, get the point that a value is located
+		point_type get_point(const value_type& value) const {
+			return static_cast<const Derived*>(this)->get_point_impl(value);
+		}
+
 		//pass distance query to the derived class
 		scalar_type distance_squared(const point_type& point, const value_type& value) const 
 			requires (Derived::HAS_DISTANCE) {
@@ -362,15 +368,15 @@ namespace gutil
 		}
 
 		//lookup the distance_squared function from gutil (only if the distance is not provided by Derived)
-		scalar_type distance_squared(const point_type& point, const value_type& value) const 
-			requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
-			return gutil::distance_squared(point, value);
-		}
+		// scalar_type distance_squared(const point_type& point, const value_type& value) const 
+		// 	requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
+		// 	return gutil::distance_squared(point, value);
+		// }
 
-		scalar_type distance_squared(const point_type& point, const index_type index) const 
-			requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
-			return gutil::distance_squared(point, _data_[index]);
-		}
+		// scalar_type distance_squared(const point_type& point, const index_type index) const 
+		// 	requires (GUTIL_HAS_DISTANCE_SQUARED && !Derived::HAS_DISTANCE) {
+		// 	return gutil::distance_squared(point, _data_[index]);
+		// }
 
 		//pass checking if a leaf contains a value to the derived class (necessary if the leaf stores indices)
 		bool leaf_contains(const leaf_node_type* leaf, const value_type& value) const {
@@ -426,7 +432,7 @@ namespace gutil
 		//recursive portion of finding the nearest data to a point
 		//index and dist are the current best index/data and its distance
 		void nearest_recursive(const tag_ptr_type node, const point_type& point, 
-				index_type& index, scalar_type& dist2) const requires (TREE_HAS_DISTANCE);
+				index_type& index, scalar_type& dist2) const requires (Derived::HAS_DISTANCE);
 		
 		//recursive portion of computing tree stats
 		void get_stats_recursive(const tag_ptr_type node, OctreeStats& stats) const;
@@ -628,7 +634,7 @@ namespace gutil
 	//find the nearest data to a point
 	template<IsNodeOpts O, typename D>
 	void OctreeBase<O,D>::nearest_recursive(const tag_ptr_type node, 
-		const point_type& point, index_type& index, scalar_type& dist2) const requires (OctreeBase<O,D>::TREE_HAS_DISTANCE) {
+		const point_type& point, index_type& index, scalar_type& dist2) const requires (D::HAS_DISTANCE) {
 		if (node.tag() == NodeTag::INTERNAL) {
 			const internal_node_type* internal = static_cast<const internal_node_type*>(node);
 
@@ -692,6 +698,32 @@ namespace gutil
 			}
 		}
 		else {
+			//TODO: do some sort of bin sort
+			// const box_type& box = internal->bbox;
+			// const point_type cntr = box.center();
+
+			// //partition data into bins for each child
+			// const size_t N = values.size();
+			// std::array<size_t, O::N_CHILDREN+1> boundary{};
+			// std::vector<int> to_child(values.size());
+			// for (size_t i=0; i<N; ++i) {
+			// 	int c_idx = 0;
+			// 	const point_type val_pt = get_point(values[i]);
+			// 	for (int j=0; j<O::DIMENSION; ++j) {
+			// 		if (val_pt[j] > cntr[j]) { c_idx |= (1 << j);}
+			// 	}
+
+			// 	to_child[i] = c_idx;
+			// 	boundary[c_idx] += 1; //just record the number in the bin for now
+			// }
+
+			// //adjust to get the boundary (after values are sorted)
+			// for (size_t i=1; i<boundary.size(); ++i) {
+			// 	boundary[i] += boundary[i-1];
+			// }
+
+			// //sort values by increasing child number
+
 			internal_node_type* internal = static_cast<internal_node_type*>(node);
 			auto first = values.begin();
 			for (tag_ptr_type c_ptr : *internal) {

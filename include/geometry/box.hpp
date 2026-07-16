@@ -5,13 +5,12 @@
 #include "geometry/point.hpp"
 
 #include <iostream>
+#include <span>
 #include <cassert>
 #include <algorithm>
 #include <functional>
 
 namespace gutil {
-	template<typename T>
-	concept IsBox = GeometryObject<T> && std::same_as<T, Box<T::DIMENSION, typename T::scalar_type>>;
 
 	template<int DIM, IsScalar T> requires(DIM>0)
 	struct Box {
@@ -46,22 +45,40 @@ namespace gutil {
 			low{point_type::Filled(static_cast<T>(lo))}, 
 			high{point_type::Filled(static_cast<T>(hi))} {assert(lo<=hi);}
 
+		// Construct to encompass lots of points
+		constexpr Box(std::span<const Point<DIM,T>> points) {
+			if (points.empty()) {return;}
+			low = points[0];
+			high = points[0];
+			for (size_t i=1; i<points.size(); ++i) {
+				low = gutil::elmin(low, points[i]);
+				high = gutil::elmax(high, points[i]);
+			}
+		}
 
 		////////////////////////////////////////////////////////////////
 		// Attributes
 		////////////////////////////////////////////////////////////////
 		[[nodiscard]] constexpr point_type center() const noexcept {
-			if constexpr (IsReal<T>) {return low + T{0.5}*(high-low);}
-			else {return (high-low)/T{2};}
+			return point_type::midpoint(low, high);
 		}
-		[[nodiscard]] constexpr point_type sidelength() const noexcept {return high - low;}
-		[[nodiscard]] T diameter() const noexcept requires(IsReal<T>) {return gutil::distance(high,low);}
-		[[nodiscard]] constexpr T volume() const noexcept {return gutil::product_reduce(high-low);}
+
+		[[nodiscard]] constexpr point_type sidelength() const noexcept {
+			return high - low;
+		}
+
+		[[nodiscard]] T diameter() const noexcept requires(IsReal<T>) {
+			return gutil::distance(high,low);
+		}
+		
+		[[nodiscard]] constexpr T volume() const noexcept {
+			return (high-low).prod();
+		}
+
 
 		////////////////////////////////////////////////////////////////
 		// Vertex access
-		////////////////////////////////////////////////////////////////
-		
+		////////////////////////////////////////////////////////////////		
 		/// Get i-th vertex in VTK pixel/voxel order
 		/// Binary encoding: bit i determines whether to use low[i] or high[i]
 		[[nodiscard]] constexpr point_type voxelvertex(const int idx) const noexcept {
@@ -87,6 +104,7 @@ namespace gutil {
 			}
 		}
 
+
 		////////////////////////////////////////////////////////////////
 		// Containment and intersection
 		////////////////////////////////////////////////////////////////
@@ -106,8 +124,13 @@ namespace gutil {
 		}
 		
 		/// Check if this box intersects the other box (check projection onto each axis)
-		[[nodiscard]] constexpr bool intersects(const Box<DIM,T>& other) const noexcept {
-			return gutil::intersect(*this, other);
+		[[nodiscard]] constexpr bool collides_with(const Box<DIM,T>& other) const noexcept {
+			for (int i = 0; i < DIM; i++) {
+				if (high.data[i] < other.low.data[i] || other.high.data[i] < low.data[i]) {
+					return false;
+				}
+			}
+			return true;
 		}
 
 		/// Find the support point: vertex that maximizes dot(vertex, direction)
@@ -118,6 +141,7 @@ namespace gutil {
 			}
 			return result;
 		}
+
 
 		////////////////////////////////////////////////////////////////
 		// Geometric transformations
@@ -144,6 +168,7 @@ namespace gutil {
 			return {low - shift, high - shift};
 		}
 
+
 		////////////////////////////////////////////////////////////////
 		// Comparison
 		////////////////////////////////////////////////////////////////
@@ -151,6 +176,23 @@ namespace gutil {
 			return low == other.low && high == other.high;
 		}
 	};
+
+
+	///////////////////////////////////////////////////////////////////
+	/// Ensure that the concept 'IsBox' is valid
+	///////////////////////////////////////////////////////////////////
+	template<typename T>
+	concept IsBox = GeometryObject<T> && std::same_as<T, Box<T::DIMENSION, typename T::scalar_type>>;
+	
+	static_assert(IsBox<Box<3,float>>);
+	static_assert(IsBox<Box<2,float>>);
+	static_assert(IsBox<Box<3,double>>);
+	static_assert(IsBox<Box<2,double>>);
+	static_assert(IsBox<Box<3,int>>);
+	static_assert(IsBox<Box<2,int>>);
+	static_assert(IsBox<Box<3,size_t>>);
+	static_assert(IsBox<Box<2,size_t>>);
+
 
 	////////////////////////////////////////////////////////////////
 	// Utility functions
@@ -165,6 +207,74 @@ namespace gutil {
 		if (gutil::lexicographic_less(left.low, right.low)) {return true;}
 		if (gutil::lexicographic_less(right.low, left.low)) {return false;}
 		return gutil::lexicographic_less(left.high, right.high);
+	}
+
+
+	/////////////////////////////////////////////////////////////////////////////
+	///////////////////// BOX ONLY MATH/GEOMETRY OPERATIONS /////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr bool collide(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		return A.collides_with(B);
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		// record the gap (if any) along each axis and then sum the squares.
+		//		[   A - axis[i]    ] <---- gap = B.low - A.high ----> [    B - axis[i]   ]
+		T dd{0};
+		for (int i=0; i<DIM; ++i) {
+			const T gap = gutil::max(T{0}, A.low.data[i] - B.high.data[i], B.low.data[i] - A.high.data[i]);
+			dd = gutil::fma(gap, gap, dd);
+		}
+		return dd;
+	}
+
+
+	/////////////////////////////////////////////////////////////////////////////
+	//////////////////// BOX/POINT MATH/GEOMETRY OPERATIONS /////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+	/// Return 'union' of two boxes (minimal box that contains both inputs)
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Box<DIM,T> merge(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		return {gutil::elmin(A.low, B.low), gutil::elmax(A.high, B.high)};
+	}
+
+	/// Return the smallest box the contains the given box and point
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Box<DIM,T> expand(const Box<DIM,T>& A, const Point<DIM,T>& B) noexcept {
+		return {gutil::elmin(A.low, B), gutil::elmax(A.high, B)};
+	}
+
+	/// Return intersection of two boxes (undefined if boxes don't intersect)
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Box<DIM,T> intersection(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		assert(A.collides_with(B));
+		return {gutil::elmax(A.low, B.low), gutil::elmin(A.high, B.high)};
+	}
+
+	/// Project/clamp a point to a box
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		return gutil::clamp(A, B.low, B.high);
+	}
+
+	/// Project/clamp a point to a box periodically
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> clamp_periodic(const Point<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		if constexpr (IsInteger<T>) {
+			return B.low + (A - B.low)%(B.high - B.low);
+		}
+		else {
+			return B.low + gutil::fmod((A - B.low),(B.high - B.low));
+		}
+	}
+
+	/// Return the squared distance from a point to the box.
+	/// The distance is 0 if the point is contained in the box.
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& A, const Point<DIM,T>& B) noexcept {
+		return gutil::distance_squared(gutil::clamp(B, A), B);
 	}
 }
 

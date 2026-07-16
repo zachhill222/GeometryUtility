@@ -1,257 +1,221 @@
 #include "gutil.hpp"
+#include "utility/rng.hpp"
 
-#include <iostream>
+#include <algorithm>
 #include <vector>
-#include <random>
-#include <chrono>
-#include <iomanip>
-#include <cassert>
-#include <string>
+#include <span>
+#include <unordered_set>
+#include <iostream>
 
-// ---------------------------------------------------------------------------
-// Timing helper
-// ---------------------------------------------------------------------------
-struct Timer
-{
-    using clock     = std::chrono::high_resolution_clock;
-    using duration  = std::chrono::duration<double, std::milli>;
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
-    clock::time_point _start;
+using namespace gutil;
 
-    void start() { _start = clock::now(); }
+#ifndef TEST_DIM
+	#define TEST_DIM 3
+#endif
 
-    double elapsed_ms() const {
-        return duration(clock::now() - _start).count();
-    }
-};
+#ifndef TEST_SCALAR
+	#define TEST_SCALAR float
+#endif
 
-// ---------------------------------------------------------------------------
-// Pretty printer
-// ---------------------------------------------------------------------------
-static void print_result(const std::string& label,
-                         double elapsed_ms,
-                         size_t count)
-{
-    std::cout << std::left  << std::setw(24) << label
-              << std::right << std::setw(10) << count   << " items   "
-              << std::setw(10) << std::fixed << std::setprecision(3)
-              << elapsed_ms << " ms   ("
-              << std::setw(8) << std::setprecision(1)
-              << (count / elapsed_ms * 1000.0) << " ops/s)\n";
+using point_type = Point<TEST_DIM,TEST_SCALAR>;
+using Scalar = TEST_SCALAR;
+
+std::vector<point_type> generate_points(size_t N) {
+	std::cout << "\n";
+	Logger::log("START: generate_points");
+	LogTime time{"END: generate_points"};
+
+	auto random_point = UniformRandomPoint<point_type,false>();
+	random_point.set_parameters(Scalar{-10}, Scalar{10});
+
+	std::vector<point_type> result;
+	result.reserve(N);
+
+	for (size_t i=0; i<N; ++i) {
+		result.push_back(random_point());
+	}
+
+	std::cout << "\tgenerated " << std::to_string(result.size()) << " points" << std::endl;
+
+	return result;
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-int main(int argc, char** argv)
-{
-    // Allow N to be passed as a command-line argument, default 100'000
-    const size_t N = (argc > 1) ? static_cast<size_t>(std::stoul(argv[1]))
-                                 : 100'000;
+void test_standard_sum(std::span<const point_type> list) {
+	std::cout << "\n";
+	Logger::log("START: test_standard_sum");
+	LogTime time{"END: test_standard_sum"};
 
-    std::cout << "=== PointOctree test  N=" << N << " ===\n\n";
+	point_type val = point_type::Zeros();
+	for (auto& p : list) {val += p;}
 
-    // -----------------------------------------------------------------------
-    // Generate random points
-    // -----------------------------------------------------------------------
-    std::mt19937                          rng(42);
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-
-    using Tree  = gutil::PointOctree<3, float>;   // 3D, float, default MaxData=64
-    using Point = typename Tree::point_type;
-    using Box   = typename Tree::box_type;
-
-    std::vector<Point> points;
-    points.reserve(N);
-    for (size_t i = 0; i < N; ++i) {
-        points.emplace_back(dist(rng), dist(rng), dist(rng));
-    }
-
-    // -----------------------------------------------------------------------
-    // Construct the tree
-    // -----------------------------------------------------------------------
-    const Box root_bbox({-1.f, -1.f, -1.f}, {1.f, 1.f, 1.f});
-    Tree tree(root_bbox);
-    tree.reserve(N);
-
-    // -----------------------------------------------------------------------
-    // Insert all points — timed
-    // -----------------------------------------------------------------------
-    Timer t;
-
-    std::vector<size_t> indices;
-    indices.reserve(N);
-
-    t.start();
-    for (const Point& p : points) {
-        indices.push_back(tree.insert(p));
-    }
-
-    const double insert_ms = t.elapsed_ms();
-    print_result("insert", insert_ms, N);
-
-    // Basic sanity: every returned index should be < N and tree size == N
-    assert(tree.size() == N && "tree size mismatch after insert");
-    for (size_t i = 0; i < N; ++i) {
-        assert(indices[i] < N && "bad index returned by insert");
-    }
-
-    // -----------------------------------------------------------------------
-    // Insert all points via batch (copy) — timed
-    // -----------------------------------------------------------------------
-    {
-        Tree second_tree(root_bbox);
-        second_tree.reserve(N);
-
-        t.start();
-        second_tree.batch_insert(points);
-
-        const double batch_copy_insert_ms = t.elapsed_ms();
-        
-        // Basic sanity: every returned index should be < N and tree size == N
-        // check that all data was inserted, but do not time
-        assert(tree.size() == N && "tree size mismatch after insert");
-        auto N_Missed = N;
-        for (size_t i = 0; i < N; ++i) {
-            if (second_tree.contains(points[i])) {--N_Missed;}
-        }
-
-        print_result("batch_insert (copy)", batch_copy_insert_ms, N);
-        if (N_Missed !=0 ){
-            std::cerr << "ERROR: contains() missed " << N_Missed << " points\n";
-            return 1;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Insert all points via batch (move) — timed
-    // -----------------------------------------------------------------------
-    {
-        Tree second_tree(root_bbox);
-        second_tree.reserve(N);
-
-        auto points_copy = points;
-
-        t.start();
-        second_tree.batch_insert(std::move(points_copy));
-
-        const double batch_move_insert_ms = t.elapsed_ms();
-        
-        // Basic sanity: every returned index should be < N and tree size == N
-        // check that all data was inserted, but do not time
-        assert(tree.size() == N && "tree size mismatch after insert");
-        auto N_Missed = N;
-        for (size_t i = 0; i < N; ++i) {
-            if (second_tree.contains(points[i])) {--N_Missed;}
-        }
-
-        print_result("batch_insert (move)", batch_move_insert_ms, N);
-        if (N_Missed !=0 ){
-            std::cerr << "ERROR: contains() missed " << N_Missed << " points\n";
-            return 1;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // contains() — check every point is found
-    // -----------------------------------------------------------------------
-    t.start();
-    size_t found = 0;
-    for (const Point& p : points) {
-        if (tree.contains(p)) { ++found; }
-    }
-    const double contains_ms = t.elapsed_ms();
-    print_result("contains", contains_ms, N);
-
-    if (found != N) {
-        std::cerr << "ERROR: contains() missed " << (N - found) << " points\n";
-        return 1;
-    }
-
-    // -----------------------------------------------------------------------
-    // find() — check every point is found
-    // -----------------------------------------------------------------------
-    t.start();
-    found = 0;
-    for (size_t qi=0; qi<points.size(); ++qi) {
-        if (qi == tree.find(points[qi])) { ++found; }
-    }
-    const double find_ms = t.elapsed_ms();
-    print_result("find", find_ms, N);
-
-    if (found != N) {
-        std::cerr << "ERROR: find() missed " << (N - found) << " points\n";
-        return 1;
-    }
-
-    // -----------------------------------------------------------------------
-    // nearest() — find the nearest stored point to each query point
-    //    Use freshly generated query points so we don't just look up existing ones
-    // -----------------------------------------------------------------------
-    std::vector<Point> queries;
-    queries.reserve(N);
-    for (size_t i = 0; i < N; ++i) {
-        queries.emplace_back(dist(rng), dist(rng), dist(rng));
-    }
- 
-    t.start();
-    size_t nearest_found = 0;
-    for (const Point& q : queries) {
-        const size_t idx = tree.nearest(q);
-        if (idx != size_t(-1)) { ++nearest_found; }
-    }
-    const double nearest_ms = t.elapsed_ms();
-    print_result("nearest", nearest_ms, N);
- 
-    if (nearest_found != N) {
-        std::cerr << "ERROR: nearest() failed for "
-                  << (N - nearest_found) << " queries\n";
-        return 1;
-    }
- 
-    // -----------------------------------------------------------------------
-    // Verify nearest() correctness on a small random sample
-    //    Brute-force the answer and compare
-    // -----------------------------------------------------------------------
-    const size_t VERIFY_N = std::min(N, size_t(1000));
-    size_t mismatches = 0;
- 
-    for (size_t qi = 0; qi < VERIFY_N; ++qi) {
-        const Point& q = queries[qi];
- 
-        // brute force
-        size_t bf_idx  = 0;
-        float  bf_dist = std::numeric_limits<float>::max();
-        for (size_t i = 0; i < N; ++i) {
-            const Point  diff = q - points[i];
-            const float  d2   = gutil::dot(diff, diff);
-            if (d2 < bf_dist) { bf_dist = d2; bf_idx = i; }
-        }
- 
-        // octree
-        const size_t ot_idx  = tree.nearest(q);
-        const Point  ot_diff = q - points[ot_idx];
-        const float  ot_dist = gutil::dot(ot_diff, ot_diff);
- 
-        // distances should match (indices may differ for ties)
-        if (std::abs(ot_dist - bf_dist) > 1e-6f) {
-            ++mismatches;
-        }
-    }
- 
-    if (mismatches == 0) {
-        std::cout << "\nnearest() verified correct on "
-                  << VERIFY_N << " samples.\n";
-    } else {
-        std::cerr << "\nERROR: nearest() gave wrong result on "
-                  << mismatches << " / " << VERIFY_N << " samples.\n";
-        return 1;
-    }
-    
-    // if we got here, we passed all the tests
-    std::cout << "\nAll tests passed.\n";
-    return 0;
+	std::cout << "\tsum= " << val << std::endl;
 }
+
+void test_sorted_sum(std::span<const point_type> list) {
+	std::cout << "\n";
+	Logger::log("START: test_sorted_sum");
+	LogTime time{"END: test_sorted_sum"};
+
+	std::cout << "\tsum= " << sorted_sum(list) << std::endl;
+}
+
+void test_kahan_sum(std::span<const point_type> list) {
+	std::cout << "\n";
+	Logger::log("START: test_kahan_sum)");
+	LogTime time{"END: test_kahan_sum)"};
+
+	std::cout << "\tsum= " << kahan_sum(list) << std::endl;
+}
+
+void construct_unordered_set(std::span<const point_type> list) {
+	std::cout << "\n";
+	Logger::log("START: construct_unordered_set");
+	LogTime time{"END: construct_unordered_set"};
+
+	std::unordered_set<point_type> set;
+	set.reserve(list.size());
+	for (const auto& p : list) {set.insert(p);}
+
+	std::cout << "\tcreated an unordered set with " << set.size() << " points" << std::endl;
+}
+
+auto move_to_octree(std::span<point_type> list) {
+	std::cout << "\n";
+	Logger::log("START: move_to_octree");
+	LogTime time{"END: move_to_octree"};
+
+	PointOctree<point_type> tree{list};
+
+	std::cout << "\tcreated the octree with " << tree.size() << " points" << std::endl;
+	return tree;
+}
+
+void test_octree_find(const PointOctree<point_type>& tree) {
+	std::cout << "\n";
+	Logger::log("START: test_octree_find");
+	LogTime time{"END: test_octree_find"};
+
+	size_t n_miss = 0;
+	size_t idx = 0;
+	for (const point_type& p : tree) {
+		if (tree.find(p) != idx) {++n_miss;}
+		++idx;
+	}
+
+	if (n_miss>0) {
+		std::cerr << "\tERROR : missed " << n_miss << "/" << tree.size() <<  " points" << std::endl; 
+	}
+	else {
+		std::cout << "\tSUCCESS : missed " << n_miss << "/" << tree.size() <<  " points" << std::endl; 
+	}
+}
+
+std::vector<size_t> find_nearest_octree(const PointOctree<point_type>& tree, std::span<const point_type> query) {
+	std::cout << "\n";
+	Logger::log("START: find_nearest_octree");
+	LogTime time{"END: find_nearest_octree"};
+
+	const size_t N = query.size();
+	std::vector<size_t> result(N);
+
+	GUTIL_OMP(parallel for)
+	for (size_t i=0; i<N; ++i) {
+		result[i] = tree.nearest(query[i]);
+	}
+
+	return result;
+}
+
+std::vector<size_t> find_nearest_brute_force(std::span<const point_type> points, std::span<const point_type> query) {
+	std::cout << "\n";
+	Logger::log("START: find_nearest_brute_force");
+	LogTime time{"END: find_nearest_brute_force"};
+
+	if (points.empty()) {return {};}
+
+	const size_t N = query.size();
+	std::vector<size_t> result(N);
+
+	GUTIL_OMP(parallel for)
+	for (size_t i=0; i<N; ++i) {
+		const point_type& q = query[i];
+		result[i] = 0;
+		Scalar d2 = gutil::distance_squared(points[0],q);
+		for (size_t j=1; j<points.size(); ++j) {
+			const Scalar tmp = gutil::distance_squared(points[j],q);
+			if (tmp < d2) {d2 = tmp; result[i]=j;}
+		}
+	}
+
+	return result;
+}
+
+void compare_nearest(std::span<const point_type> points, std::span<const point_type> query,
+		std::span<const size_t> tree_idx, std::span<const size_t> brute_idx) {
+	std::cout << "\n";
+	Logger::log("START: compare_nearest");
+	LogTime time{"END: compare_nearest"};
+
+	if (query.size() != tree_idx.size() || query.size() != brute_idx.size()) {
+		std::cerr << "\tERROR: dimension mismatch" << std::endl;
+		throw;
+	} 
+
+	size_t n_miss = 0;
+	for (size_t i=0; i<query.size(); ++i) {
+		if (tree_idx[i] != brute_idx[i]) {
+			const auto& q = query[i];
+			const auto ti = tree_idx[i];
+			const auto bi = brute_idx[i];
+
+			const Scalar dt = gutil::distance_squared(points[ti], q);
+			const Scalar db = gutil::distance_squared(points[bi], q);
+
+			++n_miss;
+			std::cerr << "\tERROR(" << n_miss << ") at query " << q << "\n"
+					  << "\t       tree found " << points[ti] << " (dist= " << dt << ")\n"
+					  << "\t       brute found " << points[bi] << " (dist= " << db << ")" << std::endl;
+		}
+	}
+
+	if (n_miss>0) {
+		std::cerr << "\tERROR : " << n_miss << "/" << query.size() <<  " different indices" << std::endl; 
+	}
+	else {
+		std::cout << "\tSUCCESS : " << n_miss << "/" << query.size() <<  " different indices" << std::endl; 
+	}
+}
+
+
+int main(int argc, char** argv) {
+	size_t N = argc > 1 ? atoi(argv[1]) : 100000;
+	std::vector<point_type> points = generate_points(N);
+	std::vector<point_type> query = generate_points(100);
+
+	test_standard_sum(points);
+	// test_sorted_sum(points);
+	test_kahan_sum(points);
+	construct_unordered_set(points);
+	auto tree = move_to_octree(points);
+	test_octree_find(tree);
+	auto tree_near = find_nearest_octree(tree, query);
+	auto brute_near = find_nearest_brute_force(tree.data(), query);
+	compare_nearest(tree.data(), query, tree_near, brute_near);
+
+	std::cout << "\nOctree points:\n";
+	gutil::print_to_stream(std::cout, std::span<const point_type>(tree.begin(), tree.begin()+5), "\n");
+
+	std::cout << "\nQuery points:\n";
+	gutil::print_to_stream(std::cout, std::span<const point_type>(query.begin(), query.begin()+5), "\n");
+}
+
+
+
+
 
 
 

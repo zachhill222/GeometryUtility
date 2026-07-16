@@ -8,14 +8,20 @@ DEBUG      = -pg -g -Wall
 
 #redefine for testing optimizations
 OPT        = -O3
-PAR        = -fopenmp
+# PAR        = -fopenmp
 # DEBUG      = -DNDEBUG
 
 #final compiler command
 CC = $(CXX) $(OPT) $(PAR) $(DEBUG)
 
 #final defines
-DEFINES = ${DIM}
+DEFINES = 
+ifdef TEST_DIM
+	DEFINES += -DTEST_DIM=$(TEST_DIM)
+endif
+ifdef TEST_SCALAR
+	DEFINES += -DTEST_SCALAR=$(TEST_SCALAR)
+endif
 
 point: FORCE
 	${CC} ${INCLUDE} ${DEFINES} point.cpp -o point

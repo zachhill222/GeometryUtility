@@ -2,19 +2,7 @@
 
 #include "math/math.hpp"
 #include "utility/utility.hpp"
-// #include "math/fixed_point.hpp"
-// #include "math/float_manipulation.hpp"
-// #include "math/matrix.hpp"
-// #include "math/quaternion.hpp"
-// #include "math/linear_set.hpp"
-
-#include "geometry/point.hpp"
-#include "geometry/box.hpp"
-#include "geometry/line.hpp"
-#include "geometry/line_segment.hpp"
-// #include "geometry/plane.hpp"
-// #include "geometry/polytope.hpp"
-// #include "geometry/basic_shapes.hpp"
+#include "geometry/geometry.hpp"
 
 #include "octree/node.hpp"
 #include "octree/octree_base.hpp"

@@ -51,7 +51,7 @@ namespace gutil {
 		static Quaternion Rotation(T theta, point_type norm_axis) noexcept {
 			theta *= T{0.5};
 			norm_axis *= gutil::sin(theta);
-			return {gutil::cos(theta), norm_axis[0], norm_axis[1], norm_axis[3]};
+			return {gutil::cos(theta), norm_axis[0], norm_axis[1], norm_axis[2]};
 		}
 
 		////////////////////////////////////////////////////////////////
@@ -104,7 +104,7 @@ namespace gutil {
 		}
 
 		[[nodiscard]] constexpr point_type rotate(const point_type& point) const noexcept {
-			Quaternion V{T{0}, point[0], point[1], point[2]};
+			Quaternion V{T{0}, point.data[0], point.data[1], point.data[2]};
 			V = V * this->conj();
 			V = (*this) * V;
 			return V.qv();
@@ -115,7 +115,7 @@ namespace gutil {
 		}
 
 		Quaternion& normalize() noexcept {
-			gutil::in_place_divide(data, this->norm());
+			gutil::in_place_divide<4,T>(data, this->norm());
 			return *this;
 		}
 
@@ -129,11 +129,6 @@ namespace gutil {
 
 		constexpr Quaternion& operator-=(const Quaternion& other) noexcept {
 			gutil::in_place_subtract<4,T>(data, other.data);
-			return *this;
-		}
-
-		constexpr Quaternion& operator-() noexcept {
-			gutil::in_place_negate<4,T>(data);
 			return *this;
 		}
 
@@ -154,16 +149,29 @@ namespace gutil {
 		constexpr Quaternion& operator/=(const Quaternion& other) noexcept {
 			return operator*=(other.inv());
 		}
+
+
+		////////////////////////////////////////////////////////////////
+		// Unary operators
+		////////////////////////////////////////////////////////////////
+		[[nodiscard]] constexpr Quaternion operator-() const noexcept {
+			return {-data[0], -data[1], -data[2], -data[3]};
+		}
+
+
+		////////////////////////////////////////////////////////////////
+		// Static methods
+		////////////////////////////////////////////////////////////////
+		[[nodiscard]] constexpr point_type rotate(const Quaternion& q, const point_type& p) noexcept {
+			assert(q.is_rotation());
+			return q.rotate(p);
+		}
 	};
-
-	
-
 
 
 	/////////////////////////////////////////////////////////////////////////////
 	//////////////////////// STANDARD BINARY OPERATIONS /////////////////////////
 	/////////////////////////////////////////////////////////////////////////////
-
 	template<IsReal T>
 	[[nodiscard]] inline constexpr Quaternion<T> operator+(Quaternion<T> left, const Quaternion<T>& right) noexcept {
 		return left+=right;
@@ -185,7 +193,7 @@ namespace gutil {
 	}
 	
 	template<IsReal T>
-	[[nodiscard]] inline constexpr Quaternion<T> operator==(Quaternion<T> left, const Quaternion<T>& right) noexcept {
+	[[nodiscard]] inline constexpr bool operator==(Quaternion<T> left, const Quaternion<T>& right) noexcept {
 		return gutil::elements_equal<4,T>(left.data, right.data);
 	}
 
@@ -195,7 +203,7 @@ namespace gutil {
 	/////////////////////////////////////////////////////////////////////////////
 	template<IsReal T>
 	std::ostream& operator<<(std::ostream& os, const Quaternion<T>& quaternion){
-		print_to_stream(os, quaternion.data, " ");
+		print_to_stream<4,T>(os, quaternion.data, " ");
 		return os;
 	}
 }

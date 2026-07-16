@@ -13,14 +13,6 @@
 
 namespace gutil
 {
-	///////////////////////////////////////////////////////////
-	/// Concept to ensure that a type is some form of point
-	/// defined in the class below
-	///////////////////////////////////////////////////////////
-	template<typename T>
-	concept IsPoint = GeometryObject<T> && std::same_as<T, Point<T::DIMENSION, typename T::scalar_type>>;
-
-	
 	//////////////////////////////////////////////////////////
 	/// A class for cartesian points in space
 	///
@@ -59,9 +51,10 @@ namespace gutil
 		constexpr Point(Ts... args) : data{static_cast<T>(args)...} {}
 
 		//factory methods
-		[[nodiscard]] static constexpr Point Filled(T val) noexcept {
+		template<IsScalar U> requires std::is_nothrow_convertible_v<T,U>
+		[[nodiscard]] static constexpr Point Filled(U val) noexcept {
 			Point p;
-			std::fill(p.data, p.data+DIM, val);
+			std::fill(p.data, p.data+DIM, static_cast<T>(val));
 			return p;
 		}
 
@@ -175,12 +168,15 @@ namespace gutil
 		}
 
 		Point& normalize() {
-			*this = gutil::normalized(*this);
-			return *this;
+			const T nn = gutil::norm2<DIM,T>(data);
+			assert(nn>T{0} && "normalized: input was the zero vector");
+			return operator/=(nn);
 		}
 
 		[[nodiscard]] Point normalized() const {
-			return gutil::normalized(*this);
+			Point result{*this};
+			result.normalize();
+			return result;
 		}
 
 		//////////////////////////////////////////////////////////
@@ -222,11 +218,36 @@ namespace gutil
 		/// BINARY VECTOR OPERATIONS
 		//////////////////////////////////////////////////////////
 		[[nodiscard]] constexpr T dot(const Point& other) const noexcept {
-			return gutil::dot(*this, other);
+			return Point::dot(*this, other);
 		}
 
 		[[nodiscard]] constexpr Point<3,T> cross(const Point& other) const noexcept requires (DIM==3) {
-			return gutil::cross(*this, other);
+			// this x other
+			return Point::cross(*this, other);
+		}
+
+		//////////////////////////////////////////////////////////
+		/// STATIC METHODS
+		//////////////////////////////////////////////////////////
+		[[nodiscard]] static constexpr T dot(const Point& left, const Point& right) noexcept {
+			return gutil::dot_product_reduce<DIM,T>(left.data, right.data);
+		}
+
+		[[nodiscard]] static constexpr Point<3,T> cross(const Point& left, const Point& right) noexcept requires(DIM==3) {
+			Point<3,T> result;
+			result[0] = left.data[1]*right.data[2] - left.data[2]*right.data[1];
+			result[1] = left.data[2]*right.data[0] - left.data[0]*right.data[2];
+			result[2] = left.data[0]*right.data[1] - left.data[1]*right.data[0];
+			return result;
+		}
+
+		[[nodiscard]] static constexpr T squared_norm(const Point& vec) noexcept {
+			return gutil::squared_norm<DIM,T>(vec.data);
+		}
+
+		[[nodiscard]] static constexpr Point midpoint(const Point& left, const Point& right) noexcept {
+			if constexpr (IsReal<T>) {return left + T{0.5}*(right - left);}
+			else {return (left+right)/T{2};}
 		}
 	};
 
@@ -234,53 +255,45 @@ namespace gutil
 	///////////////////////////////////////////////////////////////////
 	/// Ensure that the concept 'IsPoint' is valid
 	///////////////////////////////////////////////////////////////////
+	template<typename T>
+	concept IsPoint = GeometryObject<T> && std::same_as<T, Point<T::DIMENSION, typename T::scalar_type>>;
+	
 	static_assert(IsPoint<Point<3,float>>);
 	static_assert(IsPoint<Point<2,float>>);
 	static_assert(IsPoint<Point<3,double>>);
 	static_assert(IsPoint<Point<2,double>>);
+	static_assert(IsPoint<Point<3,int>>);
+	static_assert(IsPoint<Point<2,int>>);
+	static_assert(IsPoint<Point<3,size_t>>);
+	static_assert(IsPoint<Point<2,size_t>>);
 
 
 	////////////////////////////////////////////////////////////////////
 	/////// COMPARISON (CONE/ELEMENT-WISE, NOT A TOTAL ORDERING) ///////
 	////////////////////////////////////////////////////////////////////
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] constexpr bool operator==(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		for (int i=0; i<DIM; i++) {
-			if (left[i]!=right[i]) {return false;}
-		}
-		return true;
+	[[nodiscard]] inline constexpr bool operator==(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::elements_equal<DIM,T>(left.data, right.data);
 	}
 
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] constexpr bool operator<(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		for (int i=0; i<DIM; i++) {
-			if (left[i] >= right[i]) {return false;}
-		}
-		return true;
+	[[nodiscard]] inline constexpr bool operator<(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::cone_compare_less_than<DIM,T>(left.data, right.data);
 	}
 
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] constexpr bool operator<=(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		for (int i=0; i<DIM; i++) {
-			if (left[i] > right[i]) {return false;}
-		}
-		return true;
+	[[nodiscard]] inline constexpr bool operator<=(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::cone_compare_less_than_equal<DIM,T>(left.data, right.data);
 	}
 
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] constexpr bool operator>(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		for (int i=0; i<DIM; i++) {
-			if (left[i] <= right[i]) {return false;}
-		}
-		return true;
+	[[nodiscard]] inline constexpr bool operator>(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::cone_compare_greater_than<DIM,T>(left.data, right.data);
 	}
 
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] constexpr bool operator>=(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
-		for (int i=0; i<DIM; i++) {
-			if (left[i] < right[i]) {return false;}
-		}
-		return true;
+	[[nodiscard]] inline constexpr bool operator>=(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::cone_compare_greater_than_equal<DIM,T>(left.data, right.data);
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -338,7 +351,7 @@ namespace gutil
 	/////////////////////////////////////////////////////////////////////////////
 	template<int DIM, IsScalar T> requires (DIM>0)
 	std::ostream& operator<<(std::ostream& os, const Point<DIM,T>& point) {
-		print_to_stream(os, point.data, " ");
+		print_to_stream<DIM,T>(os, point.data, " ");
 		return os;
 	}
 
@@ -346,6 +359,102 @@ namespace gutil
 	[[nodiscard]] inline constexpr bool lexicographic_less(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
 		return gutil::lexicographic_less_than<DIM,T>(left.data, right.data);
 	}
+
+
+	/////////////////////////////////////////////////////////////////////////////
+	//////////////////// POINT ONLY MATH/GEOMETRY OPERATIONS ////////////////////
+	/////////////////////////////////////////////////////////////////////////////
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T dot(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return Point<DIM,T>::dot(left,right);
+	}
+
+	template<IsScalar T>
+	[[nodiscard]] inline constexpr Point<3,T> cross(const Point<3,T>& left, const Point<3,T>& right) noexcept {
+		return Point<3,T>::cross(left,right);
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> midpoint(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return Point<DIM,T>::midpoint(left,right);
+	}
+
+	template<int DIM, IsReal T> requires (DIM>0)
+	[[nodiscard]] inline Point<DIM,T> normalized(const Point<DIM,T>& vec) noexcept {
+		return vec.normalized();
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> elmin(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		Point<DIM,T> result;
+		for (int i=0; i<DIM; i++) {
+			result.data[i] = gutil::min(left.data[i], right.data[i]);
+		}
+		return result;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> elmin(std::span<const Point<DIM,T>> points) noexcept {
+		Point<DIM,T> result{points[0]};
+		for (size_t i=1; i<points.size(); ++i) {
+			result = gutil::elmin(result, points[i]);
+		}
+		return result;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> elmax(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		Point<DIM,T> result;
+		for (int i=0; i<DIM; i++) {
+			result.data[i] = gutil::max(left.data[i], right.data[i]);
+		}
+		return result;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> elmax(std::span<const Point<DIM,T>> points) noexcept {
+		Point<DIM,T> result{points[0]};
+		for (size_t i=1; i<points.size(); ++i) {
+			result = gutil::elmax(result, points[i]);
+		}
+		return result;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& p, const Point<DIM,T>& lo, const Point<DIM,T>& hi) noexcept {
+		assert(lo<=hi);
+		Point<DIM,T> result;
+		for (int i=0; i<DIM; i++) {
+			result.data[i] = gutil::clamp(p.data[i], lo.data[i], hi.data[i]);
+		}
+		return result;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& vec, const T lo, const T hi) noexcept {
+		assert(lo<=hi);
+		Point<DIM,T> result;
+		for (int i=0; i<DIM; i++) {
+			result.data[i] = gutil::clamp(vec.data[i], lo, hi);
+		}
+		return result;
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr Point<DIM,T> lerp(const Point<DIM,T>& left, const Point<DIM,T>& right, const T t) noexcept {
+		return left + t*(right-left);
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T distance_squared(const Point<DIM,T>& left, const Point<DIM,T>& right) noexcept {
+		return gutil::sse_reduce<DIM,T>(left.data, right.data);
+	}
+
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T squared_norm(const Point<DIM,T>& vec) noexcept {
+		return gutil::squared_norm<DIM,T>(vec.data);
+	}
+
 
 	/////////////////////////////////////////////////////////////////////////////
 	////////////////////// CAREFUL FLOATING POINT METHODS ///////////////////////
@@ -361,7 +470,7 @@ namespace gutil
 	/// @tparam T is the input/output type
 	////////////////////////////////////////////////////////////////////////////////
 	GUTIL_NO_ASSOC_MATH_START
-	template<int DIM, IsScalar T, IsScalar U=T> requires (std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
+	template<int DIM, IsScalar T, IsScalar U=T> requires (!IsExact<U> && std::is_nothrow_convertible_v<T,U>)
 	[[nodiscard]] inline Point<DIM,T> sorted_sum(std::span<const Point<DIM,T>> points) noexcept {
 		if (points.empty()) {return Point<DIM,T>::Zeros();}
 
@@ -390,12 +499,12 @@ namespace gutil
 	}
 	GUTIL_NO_ASSOC_MATH_END
 
-	template<int DIM, IsScalar T, IsScalar U=T> requires (!std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
+	template<int DIM, IsScalar T, IsScalar U=T> requires (IsExact<U> && std::is_nothrow_convertible_v<T,U>)
 	[[nodiscard]] inline Point<DIM,T> sorted_sum(std::span<const Point<DIM,T>> points) noexcept {
 		//just add in any order for exact arithemtic types
-		Point<DIM,U> result;
+		Point<DIM,U> result = Point<DIM,U>::Zeros();
 		for (const Point<DIM,T>& p : points) {
-			result += p;
+			result += static_cast<Point<DIM,U>>(p);
 		}
 		return result;
 	}
@@ -418,7 +527,7 @@ namespace gutil
 	/// @tparam T is the input/output type
 	////////////////////////////////////////////////////////////////////////////////
 	GUTIL_NO_ASSOC_MATH_START
-	template<int DIM, IsScalar T, IsScalar U=T> requires (std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
+	template<int DIM, IsScalar T, IsScalar U=T> requires (!IsExact<U> && std::is_nothrow_convertible_v<T,U>)
 	[[nodiscard]] inline Point<DIM,T> kahan_sum(std::span<const Point<DIM,T>> points) noexcept {
 		if (points.empty()) {return Point<DIM,T>::Zeros();}
 		
@@ -437,16 +546,17 @@ namespace gutil
 	}
 	GUTIL_NO_ASSOC_MATH_END
 
-	template<int DIM, IsScalar T, IsScalar U=T> requires (!std::numeric_limits<T>::is_exact && std::is_nothrow_convertible_v<T,U>)
+	template<int DIM, IsScalar T, IsScalar U=T> requires (IsExact<U> && std::is_nothrow_convertible_v<T,U>)
 	[[nodiscard]] inline Point<DIM,T> kahan_sum(std::span<const Point<DIM,T>> points) noexcept {
 		//just add in any order for exact arithemtic types
-		Point<DIM,U> result;
+		Point<DIM,U> result = Point<DIM,U>::Zeros();
 		for (const Point<DIM,T>& p : points) {
 			result += p;
 		}
 		return result;
 	}
 }
+
 
 namespace std {
 	//inject the hash into std

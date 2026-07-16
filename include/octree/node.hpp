@@ -152,7 +152,7 @@ namespace gutil
 			//the bits of the child number encode the high/low side of the corresponding axis
 			const point_type& low = bbox.low;
 			const point_type& high = bbox.high;
-			const point_type center = low + scalar_type{0.5}*(high-low);
+			const point_type center = bbox.center();
 			point_type vertex = low;
 			for (size_t ax=0; ax<Opts::DIM; ++ax) {
 				if ( n & (size_t{1} << ax) ) {vertex[ax] = high[ax];}
@@ -263,7 +263,7 @@ namespace gutil
 		void construct_child_leafs(Allocator& _alloc_) {
 			const point_type& low = bbox.low;
 			const point_type& high = bbox.high;
-			const point_type center = low + scalar_type{0.5}*(high-low);
+			const point_type center = bbox.center();
 
 			using leaf_type = LeafNode<Opts>;
 			//the bits of the child number encode the octant that it owns
