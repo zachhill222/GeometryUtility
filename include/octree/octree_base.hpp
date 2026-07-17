@@ -262,7 +262,6 @@ namespace gutil
 			filter_to_bbox(values);
 			thread_pool.submit([this, values]() { batch_insert_recursive(root->t_ptr(), values); });
 			thread_pool.wait_idle();
-			// batch_insert_recursive(root->t_ptr(), values);
 		}
 
 		void batch_insert(std::span<const value_type> values) {
@@ -423,8 +422,8 @@ namespace gutil
 		void get_stats_recursive(const tag_ptr_type node, OctreeStats& stats, size_t cur_depth) const;
 
 	private:
-		auto& _alloc_internal_() {return _alloc_.template pool<internal_node_type>();}
-		auto& _alloc_leaf_() {return _alloc_.template pool<leaf_node_type>();}
+		auto _alloc_internal_() {return _alloc_.template view<internal_node_type>();}
+		auto _alloc_leaf_() {return _alloc_.template view<leaf_node_type>();}
 
 		leaf_node_type* construct_leaf(const box_type& box) 		{return _alloc_.template construct<leaf_node_type>(box);}
 		internal_node_type* construct_internal(const box_type& box) {return _alloc_.template construct<internal_node_type>(box);}

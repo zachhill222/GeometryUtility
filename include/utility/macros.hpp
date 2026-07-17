@@ -14,6 +14,14 @@
 #define GUTIL_STRINGIFY(x) #x
 #define GUTIL_PRAGMA(x) _Pragma(#x)
 
+#ifndef NDEBUG
+	#define GUTIL_DEBUG(...)	__VA_ARGS__ //inject in debug build
+	#define GUTIL_NDEBUG(...)				//supress in release build
+#else
+	#define GUTIL_DEBUG(...) 				//supress in release build
+	#define GUTIL_NDEBUG(...) 	__VA_ARGS__ //inject in release build
+#endif
+
 
 //////////////////////////////////////////////////////
 /// Macro to disable floating point associativity for functions

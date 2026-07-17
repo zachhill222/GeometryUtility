@@ -1,5 +1,7 @@
 #pragma once
 
+#include "memory/base_allocator.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <cassert>
@@ -9,25 +11,26 @@
 #include <mutex>
 #include <atomic>
 
-namespace gutil
-{
+namespace gutil {
+
 	//A homogeneous slab allocator. Stores a linked list of "slabs" with constant size and number of "slots" to store data.
 	template<typename T, size_t BytesPerSlab = 65536>
-	struct SlabPool
-	{
+	struct SlabAllocator final : public BaseAllocator<SlabAllocator<T,BytesPerSlab>> {
+		static constexpr bool IS_THREADSAFE = true;	//for now keep the mutex
+		static constexpr bool IS_CONTIGUOUSLY_ALLOCATABLE = false;
+
 		//determine the size and number of slots in each slab
 		//the slab size should be the OS page size
 		static constexpr size_t SLOTS_PER_SLAB = BytesPerSlab / sizeof(T);
 		static constexpr size_t BYTES_PER_SLAB = SLOTS_PER_SLAB * sizeof(T);
-		static_assert(SLOTS_PER_SLAB >=2, "SlabPool: T is too large for the slab size");
+		static_assert(SLOTS_PER_SLAB >=2, "SlabAllocator: T is too large for the slab size");
 		
 		//ensure that multiple threads don't try to allocate simultaneously
 		//TODO: make a thread pool version
 		mutable std::mutex mtx;
 
 		//single linked list of slab/block storage
-		struct Slab
-		{
+		struct Slab {
 			//primary storage
 			alignas(T) std::byte storage[BYTES_PER_SLAB];
 			Slab* next = nullptr;
@@ -42,14 +45,14 @@ namespace gutil
 		//single linked list of free slots
 		//these pointers are stored in the first bytes of the correspondng free slot
 		struct FreeSlot {FreeSlot* next = nullptr;};
-		static_assert(sizeof(T) >= sizeof(FreeSlot), "SlabPool: T is too small to maintain the free list");
+		static_assert(sizeof(T) >= sizeof(FreeSlot), "SlabAllocator: T is too small to maintain the free list");
 
 		//track the head of the slab and free linked lists
 		Slab* _slab_head_ = nullptr;
 		FreeSlot* _free_head_ = nullptr;
 
 		//allocate a new T object and return a pointer to it
-		[[nodiscard]] T* allocate() {
+		[[nodiscard]] T* allocate_impl() {
 			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
 
 			if (_free_head_) {
@@ -78,7 +81,7 @@ namespace gutil
 		}
 
 		//deallocate an object and add its slot to the free list
-		void deallocate(T* p) noexcept {
+		void deallocate_impl(T* p) noexcept {
 			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
 			
 			assert(p != nullptr);
@@ -90,15 +93,15 @@ namespace gutil
 
 		//allocate and construct an object at the next free slot
 		template<typename... Args>
-		[[nodiscard]] T* construct(Args&&... args) {
-			T* p = allocate();
+		[[nodiscard]] T* construct_impl(Args&&... args) {
+			T* p = allocate_impl();
 			return std::construct_at(p, std::forward<Args>(args)...);	//invoke the object constructor
 		}
 
 		//destroy an object and return its slot to the free list
-		void destroy(T* p) noexcept(std::is_nothrow_destructible_v<T>) {
+		void destroy_impl(T* p) noexcept(std::is_nothrow_destructible_v<T>) {
 			std::destroy_at(p);	//invoke the object destructor
-			deallocate(p);
+			deallocate_impl(p);
 		}
 
 		//release the slabs. does not invoke destructors of objects, but does return the memory blocks to the system.
@@ -116,7 +119,7 @@ namespace gutil
 		}
 
 		//move the resources of another slab pool to this
-		void join(SlabPool&& other) noexcept {
+		void join(SlabAllocator&& other) noexcept {
 			std::lock_guard<std::mutex> lock(mtx);	//TODO: make a better lock-free allocator
 			std::lock_guard<std::mutex> lock2(other.mtx);	//TODO: make a better lock-free allocator
 
@@ -160,16 +163,16 @@ namespace gutil
 		}
 
 		//lifecyle
-		SlabPool() {}
-		~SlabPool() {release();}
+		SlabAllocator() {}
+		~SlabAllocator() {release();}
 
 		//no copying
-		SlabPool(const SlabPool&) = delete;
-		SlabPool& operator=(const SlabPool&) = delete;
+		SlabAllocator(const SlabAllocator&) = delete;
+		SlabAllocator& operator=(const SlabAllocator&) = delete;
 
 		//moving is ok
-		SlabPool(SlabPool&& other) noexcept {join(std::move(other));}
-		SlabPool& operator=(SlabPool&& other) noexcept {
+		SlabAllocator(SlabAllocator&& other) noexcept {join(std::move(other));}
+		SlabAllocator& operator=(SlabAllocator&& other) noexcept {
 			//TODO: technically this isn't thread safe.
 			//the lock is data could be added between relese and join
 			if (this != &other) {

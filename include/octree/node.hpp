@@ -2,6 +2,8 @@
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
+#include "memory/base_allocator.hpp"
+
 
 #include <array>
 #include <concepts>
@@ -277,8 +279,8 @@ namespace gutil
 		auto end() {return children.end();}
 
 		//construct child nodes as leafs given an allocator
-		template<typename Allocator>
-		void construct_child_leafs(Allocator& _alloc_) {
+		template<typename Allocator>// requires IsAllocatable<Allocator,InternalNode>
+		void construct_child_leafs(Allocator _alloc_) {
 			const point_type center = bbox.center();
 
 			using leaf_type = LeafNode<Opts>;

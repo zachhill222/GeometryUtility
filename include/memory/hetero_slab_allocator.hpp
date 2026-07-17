@@ -5,8 +5,7 @@
 #include <type_traits>
 #include <tuple>
 
-namespace gutil
-{
+namespace gutil {
 	//helper types to ensure the types in the allocator are unique
 	template<typename T, typename... Ts>
 	inline constexpr bool type_in_pack_v = (std::is_same_v<T, Ts> || ...);
@@ -25,43 +24,47 @@ namespace gutil
 
 	//an allocator to handle multiple data types. each type gets its own slab allocator.
 	template<typename... Ts>
-	struct HeteroSlabAllocator
-	{
+	struct HeteroSlabAllocator {
 		static_assert(types_are_unique_v<Ts...>, "HeteroSlabAllocator: data types must be unique");
 		static_assert(sizeof...(Ts) > 0, "HeteroSlabAllocator: at least one type must be specified");
 
 		//store one pool per type
-		std::tuple<SlabPool<Ts>...> _pools_;
+		std::tuple<SlabAllocator<Ts>...> _pools_;
 
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
-		SlabPool<T>& pool() {
-			return std::get<SlabPool<T>>(_pools_);
+		TypedAllocatorView<SlabAllocator<T>,T> view() {
+			return {std::get<SlabAllocator<T>>(_pools_)};
 		}
 
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
-		const SlabPool<T>& pool() const {
-			return std::get<SlabPool<T>>(_pools_);
+		SlabAllocator<T>& pool() {
+			return std::get<SlabAllocator<T>>(_pools_);
+		}
+
+		template<typename T> requires (type_in_pack_v<T, Ts...>)
+		const SlabAllocator<T>& pool() const {
+			return std::get<SlabAllocator<T>>(_pools_);
 		}
 
 		//forward to individual pools
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
 		[[nodiscard]] T* allocate() {
-			return pool<T>().allocate();
+			return view<T>().allocate();
 		}
 
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
 		void deallocate(T* p) {
-			pool<T>().deallocate(p);
+			view<T>().deallocate(p);
 		}
 
 		template<typename T, typename... Args> requires (type_in_pack_v<T, Ts...>)
 		[[nodiscard]] T* construct(Args&&... args) {
-			return pool<T>().construct(std::forward<Args>(args)...);
+			return view<T>().construct(std::forward<Args>(args)...);
 		}
 
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
 		void destroy(T* p) noexcept(std::is_nothrow_destructible_v<T>) {
-			pool<T>().destroy(p);
+			view<T>().destroy(p);
 		}
 
 		//pass to all pools
