@@ -2,6 +2,7 @@
 
 #include "utility/utility.hpp"
 #include "math/math.hpp"
+#include "memory/thread_pool.hpp"
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
@@ -17,8 +18,6 @@
 #include <algorithm>
 #include <cassert>
 #include <type_traits>
-#include <thread>
-#include <atomic>
 #include <mutex>
 
 namespace gutil
@@ -54,8 +53,8 @@ namespace gutil
 		{ ctree.data()    } -> std::same_as<const std::vector<typename T::value_type>&>;
 
 		// insertion
-		{ tree.insert(val)              } -> std::convertible_to<typename T::index_type>;
-		{ tree.insert(std::move(val))   } -> std::convertible_to<typename T::index_type>;
+		{ tree.push_back(val)           } -> std::convertible_to<typename T::index_type>;
+		{ tree.push_back(std::move(val))} -> std::convertible_to<typename T::index_type>;
 		{ tree.batch_insert(sp)         };
 
 		// queries
@@ -115,7 +114,6 @@ namespace gutil
 			size_t bytes_leaves{0};
 			size_t bytes_internal{0};
 			size_t bytes_nodes{0};
-			size_t bytes_total{0};
 			size_t bytes_reserved{0};
 		};
 
@@ -127,9 +125,8 @@ namespace gutil
 		std::vector<value_type> _data_;
 
 	private:
-		static constexpr int MAX_THREADS = 2; //TODO: make a thread pool to share with the sorting algorithm
+		ThreadPool thread_pool{4};
 		static constexpr size_t SPAWN_THREAD_THRESHOLD = 512;
-		std::atomic<int> n_threads{0};
 		mutable std::mutex mtx;
 
 		//make allocator for less fragmented node storage and some convenience contructors
@@ -253,19 +250,19 @@ namespace gutil
 		}
 
 		//insert data into the tree and return its index
-		index_type insert(value_type&& value);
+		index_type push_back(value_type&& value);
 		
-		index_type insert(const value_type& value) {
-			return insert(std::move(value_type{value}));
+		index_type push_back(const value_type& value) {
+			return push_back(std::move(value_type{value}));
 		}
 
 		//batch insert _data_. all data that is valid in the current
 		//bounding box will be inserted, but the order may not be preserved.
 		void batch_insert(std::span<value_type> values) {
 			filter_to_bbox(values);
-			n_threads = 1;
-			batch_insert_recursive(root->t_ptr(), values);
-			n_threads = 0;
+			thread_pool.submit([this, values]() { batch_insert_recursive(root->t_ptr(), values); });
+			thread_pool.wait_idle();
+			// batch_insert_recursive(root->t_ptr(), values);
 		}
 
 		void batch_insert(std::span<const value_type> values) {
@@ -299,9 +296,9 @@ namespace gutil
 
 		//get octree stats
 		OctreeStats get_stats() const {
-			//count nodes and depth
+			//count nodes
 			OctreeStats stats{};
-			get_stats_recursive(root->t_ptr(), stats);
+			get_stats_recursive(root->t_ptr(), stats, 0);
 			
 			//set data size
 			stats.n_data = _data_.size();
@@ -337,14 +334,6 @@ namespace gutil
 			return t_ptr.tag() == NodeTag::LEAF ?
 				static_cast<const leaf_node_type*>(t_ptr)->bbox :
 				static_cast<const internal_node_type*>(t_ptr)->bbox;
-		}
-
-		const size_t get_depth(const tag_ptr_type t_ptr) const {
-			assert(!t_ptr.is_null());
-			auto depth =  t_ptr.tag() == NodeTag::LEAF ?
-				static_cast<const leaf_node_type*>(t_ptr)->depth :
-				static_cast<const internal_node_type*>(t_ptr)->depth;
-			return static_cast<size_t>(depth);
 		}
 
 		//pass intersection query to the derived class
@@ -431,7 +420,7 @@ namespace gutil
 				index_type& index, scalar_type& dist2) const requires (Derived::HAS_DISTANCE);
 		
 		//recursive portion of computing tree stats
-		void get_stats_recursive(const tag_ptr_type node, OctreeStats& stats) const;
+		void get_stats_recursive(const tag_ptr_type node, OctreeStats& stats, size_t cur_depth) const;
 
 	private:
 		auto& _alloc_internal_() {return _alloc_.template pool<internal_node_type>();}
@@ -599,7 +588,7 @@ namespace gutil
 	}
 
 	template<IsNodeOpts O, typename D>
-	typename OctreeBase<O,D>::index_type OctreeBase<O,D>::insert(value_type&& value) {
+	typename OctreeBase<O,D>::index_type OctreeBase<O,D>::push_back(value_type&& value) {
 		//get the best leaf for the data
 		leaf_node_type* leaf = find_leaf(value);
 		if (leaf==nullptr) {return index_type(-1);}
@@ -711,42 +700,35 @@ namespace gutil
 
 			gutil::BinSort sorter{values, O::N_CHILDREN};
 			sorter.sort(pred);
-			std::vector<std::thread> threads;
 			for (int c_idx=0; c_idx<O::N_CHILDREN; ++c_idx) {
 				auto c_ptr = internal->children[c_idx];
 
 				const bool spawn_thread = (c_idx!=O::N_CHILDREN-1) && 
-						(sorter.bin_size(c_idx)>SPAWN_THREAD_THRESHOLD) && (n_threads<MAX_THREADS);
+						(sorter.bin_size(c_idx)>SPAWN_THREAD_THRESHOLD);
 
 				if (spawn_thread) {
-					++n_threads;
 					std::span<value_type> child_data = sorter.get_bin(c_idx);
 					auto fun = [this, child_data, c_ptr]() {this->batch_insert_recursive(c_ptr, child_data); };
-					threads.emplace_back(fun);
+					thread_pool.submit(fun);
 				}
 				else {
 					batch_insert_recursive(c_ptr, sorter.get_bin(c_idx));
 				}
 			}
-
-			for (auto& t : threads) {
-				t.join();
-				--n_threads;
-			}
 		}
 	}
 
 	template<IsNodeOpts O, typename D>
-	void OctreeBase<O,D>::get_stats_recursive(const tag_ptr_type node, OctreeStats& stats) const {
+	void OctreeBase<O,D>::get_stats_recursive(const tag_ptr_type node, OctreeStats& stats, size_t cur_depth) const {
 		if (node.tag() == NodeTag::LEAF) {
 			stats.n_leaves++;
-			stats.depth_max = std::max(stats.depth_max, get_depth(node));
+			stats.depth_max = std::max(stats.depth_max, cur_depth);
 		}
 		else if (node.tag() == NodeTag::INTERNAL) {
 			stats.n_internal++;
-			stats.depth_max = std::max(stats.depth_max, get_depth(node));
+			stats.depth_max = std::max(stats.depth_max, cur_depth);
 			for (tag_ptr_type c_ptr : *static_cast<const internal_node_type*>(node)) {
-				get_stats_recursive(c_ptr, stats);
+				get_stats_recursive(c_ptr, stats, cur_depth+1);
 			}
 		}
 	}
@@ -846,17 +828,16 @@ namespace gutil
 
 		//print stats
 		os << "OctreeBase {\n"
-			<< "  data:          " << s.n_data     << " items\n"
-			<< "  internal nodes:" << s.n_internal << "\n"
-			<< "  leaf nodes:    " << s.n_leaves   << "\n"
-			<< "  max depth:     " << s.depth_max  << "\n"
-			<< "  memory (data): " << fmt_bytes(s.bytes_data)  << "\n"
-			<< "  memory (leaves):" << fmt_bytes(s.bytes_leaves) << "\n"
+			<< "  data:             " << s.n_data     << " items\n"
+			<< "  internal nodes:   " << s.n_internal << "\n"
+			<< "  leaf nodes:       " << s.n_leaves   << "\n"
+			<< "  max depth:        " << s.depth_max  << "\n"
+			<< "  memory (data):    " << fmt_bytes(s.bytes_data)  << "\n"
+			<< "  memory (leaves):  " << fmt_bytes(s.bytes_leaves) << "\n"
 			<< "  memory (internal):" << fmt_bytes(s.bytes_internal) << "\n"
-			<< "  memory (nodes):" << fmt_bytes(s.bytes_nodes) << "\n"
-			<< "  memory (total):" << fmt_bytes(s.bytes_total) << "\n"
+			<< "  memory (nodes):   " << fmt_bytes(s.bytes_nodes) << "\n"
 			<< "  memory (reserved):" << fmt_bytes(s.bytes_reserved) << "\n"
-			<< "  bbox:          " << tree.bbox() << "\n";
+			<< "  bbox:             " << tree.bbox() << "\n";
 
 		return os;
 	}

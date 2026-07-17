@@ -8,8 +8,8 @@ DEBUG      = -pg -g -Wall
 
 #redefine for testing optimizations
 OPT        = -O3
-PAR        = -fopenmp
-DEBUG      = -DNDEBUG
+# PAR        = -fopenmp
+# DEBUG      = -DNDEBUG
 
 #final compiler command
 CC = $(CXX) $(OPT) $(PAR) $(DEBUG)

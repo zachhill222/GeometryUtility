@@ -45,4 +45,9 @@ namespace gutil {
 			return value;;
 		}
 	};
+
+	static_assert(IsOctree<PointOctree<Point<3,float>>>);
+	static_assert(IsOctree<PointOctree<Point<3,double>>>);
+	static_assert(IsOctree<PointOctree<Point<2,float>>>);
+	static_assert(IsOctree<PointOctree<Point<2,double>>>);
 }

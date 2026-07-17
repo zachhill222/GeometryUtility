@@ -10,6 +10,7 @@
 
 #include "memory/slab_allocator.hpp"
 #include "memory/hetero_slab_allocator.hpp"
+#include "memory/thread_pool.hpp"
 
 #include "algorithms/convex_collision.hpp"
 

@@ -44,6 +44,26 @@ std::vector<point_type> generate_points(size_t N) {
 	return result;
 }
 
+auto generate_random_tree(size_t N) {
+	std::cout << "\n";
+	Logger::log("START: generate_random_tree");
+	LogTime time{"END: generate_random_tree"};
+
+	auto random_point = UniformRandomPoint<point_type,false>();
+	random_point.set_parameters(Scalar{-10}, Scalar{10});
+
+	PointOctree<point_type> tree{Box{point_type::Filled(Scalar{-10}), point_type::Filled(Scalar{10})}};
+	tree.reserve(N);
+
+	for (size_t i=0; i<N; ++i) {
+		tree.push_back(random_point());
+	}
+
+	std::cout << "\tgenerated " << std::to_string(tree.size()) << " points" << std::endl;
+
+	return tree;
+}
+
 void test_standard_sum(std::span<const point_type> list) {
 	std::cout << "\n";
 	Logger::log("START: test_standard_sum");
@@ -201,6 +221,7 @@ int main(int argc, char** argv) {
 	test_kahan_sum(points);
 	// construct_unordered_set(points);
 	auto tree = move_to_octree(points);
+	// {auto tree2 = generate_random_tree(N);}
 	test_octree_find(tree);
 	auto tree_near = find_nearest_octree(tree, query);
 	auto brute_near = find_nearest_brute_force(tree.data(), query);
@@ -209,8 +230,7 @@ int main(int argc, char** argv) {
 	std::cout << "\nOctree points:\n";
 	gutil::print_to_stream(std::cout, std::span<const point_type>(tree.begin(), tree.begin()+5), "\n");
 
-	std::cout << "\nQuery points:\n";
-	gutil::print_to_stream(std::cout, std::span<const point_type>(query.begin(), query.begin()+5), "\n");
+	std::cout << tree;
 
 	return 0;
 }

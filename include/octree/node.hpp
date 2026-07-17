@@ -139,9 +139,6 @@ namespace gutil
 		//store the box for this node
 		box_type bbox;
 
-		//track depth
-		uint8_t depth{0}; //TODO: remove and track in recursive functions
-
 		//always have a parent (except for the root)
 		InternalNode<Opts>* parent{nullptr};
 
@@ -218,7 +215,7 @@ namespace gutil
 		bool empty() const {return cursor==0;}
 		size_t size() const {return static_cast<size_t>(cursor);}
 		bool contains(const index_type& index) const {
-			for (size_t i=0; i<cursor; ++i) {
+			for (int i=0; i<cursor; ++i) {
 				if (data[i]==index) {return true;}
 			}
 			return false;
@@ -289,9 +286,7 @@ namespace gutil
 			//ex. if n = (011)_2, then it is the 'high' side of axis 0 and 1, but the 'low' side of axis 2
 			for (size_t n=0; n<N_CHILDREN; ++n) {
 				point_type vertex = bbox.voxelvertex(n); //same bit operations
-
 				leaf_type* leaf = _alloc_.construct(box_type{vertex, center});
-				leaf->depth = this->depth + 1;
 
 				assert((reinterpret_cast<uintptr_t>(leaf) & 0x7) == 0
 				    && "leaf pointer is not 8-byte aligned");
