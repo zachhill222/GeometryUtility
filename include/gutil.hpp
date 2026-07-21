@@ -4,8 +4,10 @@
 #include "utility/utility.hpp"
 #include "geometry/geometry.hpp"
 
-#include "octree/node.hpp"
-#include "octree/octree_base.hpp"
+// #include "octree/node.hpp"
+// #include "octree/octree_base.hpp"
+// #include "octree/point_octree.hpp"
+
 #include "octree/point_octree.hpp"
 
 #include "memory/slab_allocator.hpp"

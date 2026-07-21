@@ -81,7 +81,7 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////		
 		/// Get i-th vertex in VTK pixel/voxel order
 		/// Binary encoding: bit i determines whether to use low[i] or high[i]
-		[[nodiscard]] constexpr point_type voxelvertex(const int idx) const noexcept {
+		[[nodiscard]] constexpr point_type vertex(const int idx) const noexcept {
 			assert(idx >= 0 && idx < (1 << DIM));
 			point_type vertex;
 			int p = idx;
@@ -96,11 +96,11 @@ namespace gutil {
 		/// (swaps vertices 2-3 and 6-7 from voxel ordering)
 		[[nodiscard]] constexpr point_type hexvertex(const int idx) const noexcept requires(DIM==2 or DIM==3) {
 			switch (idx) {
-				case 2: return voxelvertex(3);
-				case 3: return voxelvertex(2);
-				case 6: return voxelvertex(7);
-				case 7: return voxelvertex(6);
-				default: return voxelvertex(idx);
+				case 2: return vertex(3);
+				case 3: return vertex(2);
+				case 6: return vertex(7);
+				case 7: return vertex(6);
+				default: return vertex(idx);
 			}
 		}
 
@@ -284,7 +284,7 @@ namespace std
 	//inject the hash into std
 	template<gutil::IsBox T>
 	struct hash<T> {
-		[[nodiscard]] size_t operator()(const T& key) const noexcept{
+		[[nodiscard]] size_t operator()(const T& key) const noexcept {
 			size_t seed{0};
 			gutil::hash_combine(seed, key.low);
 			gutil::hash_combine(seed, key.high);

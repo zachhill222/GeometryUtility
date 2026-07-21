@@ -18,6 +18,7 @@ namespace gutil {
 	struct SlabAllocator final : public BaseAllocator<SlabAllocator<T,BytesPerSlab>> {
 		static constexpr bool IS_THREADSAFE = true;	//for now keep the mutex
 		static constexpr bool IS_CONTIGUOUSLY_ALLOCATABLE = false;
+		static constexpr bool IS_RAII_SAFE = true;
 
 		//determine the size and number of slots in each slab
 		//the slab size should be the OS page size

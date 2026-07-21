@@ -6,43 +6,59 @@
 #include <type_traits>
 #include <new>
 #include <atomic>
+#include <cassert>
 
 namespace gutil {
 	template<typename T>
 	concept IsAllocator = requires(T t) {
 		{ T::IS_THREADSAFE }				-> std::convertible_to<bool>;
 		{ T::IS_CONTIGUOUSLY_ALLOCATABLE }	-> std::convertible_to<bool>;
+		{ T::IS_RAII_SAFE }					-> std::convertible_to<bool>;
 	};
 
 	template<typename T>
-	concept IsThreadSafeAllocator = IsAllocator<T> && T::IS_THREADSAFE;
+	concept IsAllocatorThreadSafe = IsAllocator<T> && T::IS_THREADSAFE;
 
 	template<typename T>
-	concept IsContiguousAllocator = IsAllocator<T> && T::IS_CONTIGUOUSLY_ALLOCATABLE;
+	concept IsAllocatorContiguous = IsAllocator<T> && T::IS_CONTIGUOUSLY_ALLOCATABLE;
+
+	template<typename T>
+	concept IsAllocatorRAII = IsAllocator<T> && T::IS_RAII_SAFE;
 
 	template<typename A, typename T>
-	concept IsAllocatable = IsAllocator<A> && requires(A a, T t) {
+	concept IsAllocatorTemplated = IsAllocator<A> && requires(A a, T t) {
 		{ a.template allocate<T>() }	-> std::same_as<T*>;
 		{ a.template deallocate<T>(std::declval<T*>()) };
 		{ a.template destroy<T>(std::declval<T*>()) };
-		//the constructor is unkown, but we'll assume it is present if the others are.
-	} || requires(A a, T t) {
+	};
+
+	template<typename A, typename T>
+	concept IsAllocatorNotTemplated = IsAllocator<A> && requires(A a, T t) {
 		{ a.allocate() }	-> std::same_as<T*>;
 		{ a.deallocate(std::declval<T*>()) };
 		{ a.destroy(std::declval<T*>()) };
 	};
 
 	template<typename A, typename T>
-	concept IsContiguouslyAllocatable = IsContiguousAllocator<A> && requires(A a, T t) {
+	concept IsAllocatable = IsAllocatorTemplated<A,T> || IsAllocatorNotTemplated<A,T>;
+
+	template<typename A, typename T>
+	concept IsContigAllocatorTemplated = IsAllocator<A> && requires(A a, T t) {
 		{ a.template allocate_n<T>(size_t{0}) }	-> std::same_as<T*>;
 		{ a.template deallocate_n<T>(std::declval<T*>(), size_t{0}) };
 		{ a.template destroy_n<T>(std::declval<T*>(), size_t{0}) };
 		//the constructor is unkown, but we'll assume it is present if the others are.
-	} || requires(A a, T t) {
+	};
+
+	template<typename A, typename T>
+	concept IsContigAllocatorNotTemplated = IsAllocator<A> && requires(A a, T t) {
 		{ a.allocate_n(size_t{0}) }	-> std::same_as<T*>;
 		{ a.deallocate_n(std::declval<T*>(), size_t{0}) };
 		{ a.destroy_n(std::declval<T*>(), size_t{0}) };
 	};
+
+	template<typename A, typename T>
+	concept IsContiguouslyAllocatable = IsContigAllocatorTemplated<A,T> || IsContigAllocatorNotTemplated<A,T>;
 
 
 	////////////////////////////////////////////////////////////////////
@@ -53,7 +69,9 @@ namespace gutil {
 	struct BaseAllocator {
 		static constexpr bool IS_THREADSAFE = Derived::IS_THREADSAFE;
 		static constexpr bool IS_CONTIGUOUSLY_ALLOCATABLE = Derived::IS_CONTIGUOUSLY_ALLOCATABLE;
+		static constexpr bool IS_RAII_SAFE = Derived::IS_RAII_SAFE;		//do we need to manually delete data (i.e., new/delete calls)
 		GUTIL_DEBUG(std::atomic<size_t> allocated_bytes;)
+
 
 		///////////////////////////////////////////////////////////////
 		/// Single items
@@ -169,11 +187,6 @@ namespace gutil {
 	};
 
 
-
-
-
-
-
 	////////////////////////////////////////////////////////////////////
 	/// A wrapper for standard new/delete allocator. Note that we need to
 	/// consider custom allignments (e.g., alignas(64))
@@ -181,6 +194,7 @@ namespace gutil {
 	struct NewDeleteAllocator final : public BaseAllocator<NewDeleteAllocator> {
 		static constexpr bool IS_THREADSAFE = true;
 		static constexpr bool IS_CONTIGUOUSLY_ALLOCATABLE = true;
+		static constexpr bool IS_RAII_SAFE = false;
 
 
 		///////////////////////////////////////////////////////////////
@@ -268,41 +282,63 @@ namespace gutil {
 	};
 
 
-	static_assert(IsThreadSafeAllocator<NewDeleteAllocator>);
-	static_assert(IsContiguousAllocator<NewDeleteAllocator>);
+	static_assert(IsAllocatorThreadSafe<NewDeleteAllocator>);
+	static_assert(IsAllocatorContiguous<NewDeleteAllocator>);
 	static_assert(IsAllocatable<NewDeleteAllocator,int>);
 	static_assert(IsContiguouslyAllocatable<NewDeleteAllocator,int>);
+
+
+	///////////////////////////////////////////////////////////////
+	/// It only makes sense to a have a single allocator for new/delete.
+	/// Create one in the gutil namespace to use as a default.
+	///////////////////////////////////////////////////////////////
+	// inline NewDeleteAllocator new_delete_allocator_{};
 
 
 	///////////////////////////////////////////////////////////////
 	/// Often we need an allocator for a single type and we don't want to
 	/// supply the template every time. Make a view into an existing allocator.
 	///////////////////////////////////////////////////////////////
-	template<IsAllocator Allocator, typename T>
+	template<typename T, IsAllocator Allocator = NewDeleteAllocator>
 	struct TypedAllocatorView {
+		static_assert(IsAllocatable<Allocator,T>, "TypedAllocatorView - invalid type/allocator pair");
+
 		static constexpr bool IS_THREADSAFE = Allocator::IS_THREADSAFE;
 		static constexpr bool IS_CONTIGUOUSLY_ALLOCATABLE = Allocator::IS_CONTIGUOUSLY_ALLOCATABLE;
+		static constexpr bool IS_RAII_SAFE = Allocator::IS_RAII_SAFE;
 
-		Allocator& alloc;
-		TypedAllocatorView(Allocator& a) : alloc(a) {}
+		Allocator* alloc{nullptr};
+		TypedAllocatorView() {
+			// if constexpr (std::same_as<Allocator, NewDeleteAllocator>) {
+			// 	alloc = &gutil::new_delete_allocator_;
+			// }
+		}
+		TypedAllocatorView(Allocator& a) : alloc(&a) {}
 
-		[[nodiscard]] T* allocate() { return alloc.template allocate<T>(); }
-		void deallocate(T* p) { alloc.template deallocate<T>(p); }	
+		void set_allocator(Allocator& a) noexcept {
+			assert(alloc==nullptr);
+			alloc = &a;
+		}
+		operator bool() const noexcept {return alloc != nullptr;}	//allow assert(view) to check if the view is valid
+
+		
+		[[nodiscard]] T* allocate() { return alloc->template allocate<T>(); }
+		void deallocate(T* p) noexcept { alloc->template deallocate<T>(p); }	
 
 		template<typename... Args>
-		[[nodiscard]] T* construct(Args&&... args) { return alloc.template construct<T>(std::forward<Args>(args)...); }
-		void destroy(T* p) noexcept(std::is_nothrow_destructible_v<T>) { alloc.template destroy<T>(p); }
+		[[nodiscard]] T* construct(Args&&... args) { return alloc->template construct<T>(std::forward<Args>(args)...); }
+		void destroy(T* p) noexcept(std::is_nothrow_destructible_v<T>) { alloc->template destroy<T>(p); }
 
-		[[nodiscard]] T* allocate_n(size_t n) requires(Allocator::IS_CONTIGUOUSLY_ALLOCATABLE) { return alloc.template allocate_n<T>(n); }
-		void deallocate_n(T* p, size_t n) requires(Allocator::IS_CONTIGUOUSLY_ALLOCATABLE) { alloc.template deallocate_n<T>(p,n); }	
+		[[nodiscard]] T* allocate_n(size_t n) requires(IS_CONTIGUOUSLY_ALLOCATABLE) { return alloc->template allocate_n<T>(n); }
+		void deallocate_n(T* p, size_t n) noexcept requires(IS_CONTIGUOUSLY_ALLOCATABLE) { alloc->template deallocate_n<T>(p,n); }	
 
 		template<typename... Args>
-		[[nodiscard]] T* construct_n(size_t n, Args&&... args) requires(Allocator::IS_CONTIGUOUSLY_ALLOCATABLE) { return alloc.template construct_n<T>(n, args...); }
-		void destroy_n(T* p, size_t n) noexcept(std::is_nothrow_destructible_v<T>) requires(Allocator::IS_CONTIGUOUSLY_ALLOCATABLE) { alloc.template destroy_n<T>(p, n); }
+		[[nodiscard]] T* construct_n(size_t n, Args&&... args) requires(IS_CONTIGUOUSLY_ALLOCATABLE) { return alloc->template construct_n<T>(n, std::forward<Args>(args)...); }
+		void destroy_n(T* p, size_t n) noexcept(std::is_nothrow_destructible_v<T>) requires(IS_CONTIGUOUSLY_ALLOCATABLE) { alloc->template destroy_n<T>(p, n); }
 	};
 
-	static_assert(IsThreadSafeAllocator<TypedAllocatorView<NewDeleteAllocator,int>>);
-	static_assert(IsContiguousAllocator<TypedAllocatorView<NewDeleteAllocator,int>>);
-	static_assert(IsAllocatable<TypedAllocatorView<NewDeleteAllocator,int>,int>);
-	static_assert(IsContiguouslyAllocatable<TypedAllocatorView<NewDeleteAllocator,int>,int>);
+	static_assert(IsAllocatorThreadSafe<TypedAllocatorView<int,NewDeleteAllocator>>);
+	static_assert(IsAllocatorContiguous<TypedAllocatorView<int,NewDeleteAllocator>>);
+	static_assert(IsAllocatable<TypedAllocatorView<int,NewDeleteAllocator>,int>);
+	static_assert(IsContiguouslyAllocatable<TypedAllocatorView<int,NewDeleteAllocator>,int>);
 }

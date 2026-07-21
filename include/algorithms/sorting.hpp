@@ -16,23 +16,25 @@ namespace gutil
 	/// in the bin. An internal state is kept to more easily extract subspans.
 	//////////////////////////////////////////////////////////
 	template<typename T>
-	struct BinSort
-	{
+	struct BinSort {
 	private:
 		using iterator_type = typename std::span<T>::iterator;
 		
-		int n_bins;
-		int n_bits;
-		std::span<T> data;
-		std::vector<iterator_type> bins;
+		int n_bins{-1};
+		int n_bits{-1};
+		std::span<T> data{};
+		std::vector<iterator_type> bins{};
 
 		template<typename Predicate>
 		void recursive_partition_bit(std::span<T> data, int bit, int bin, Predicate&& int_pred) noexcept;
 	public:
+		BinSort() {}
 		BinSort(std::span<T> data, int N) : n_bins{N}, data(data), bins(N+1) {
 			assert(N>0);
 			n_bits = std::bit_width(static_cast<uint>(N-1));
 		}
+
+		const bool empty() noexcept { return data.empty(); }
 		
 		/// Primary call (pass the full predicate to bin number)
 		template<typename Predicate>
@@ -54,6 +56,18 @@ namespace gutil
 			assert(0<=i && i<n_bins);
 			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[i],bins[i+1]));
+		}
+
+		[[nodiscard]] size_t bin_start(int i) const noexcept {
+			assert(0<=i && i<n_bins);
+			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
+			return static_cast<size_t>(std::distance(bins[0], bins[i]));
+		}
+
+		[[nodiscard]] size_t bin_end(int i) const noexcept {
+			assert(0<=i && i<n_bins);
+			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
+			return static_cast<size_t>(std::distance(bins[0], bins[i+1]));
 		}
 	};
 

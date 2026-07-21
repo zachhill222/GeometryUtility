@@ -2,19 +2,8 @@ INCLUDE = -I../include
 
 #default build (debug)
 CXX        = g++ -std=c++23
-OPT        = -O0
-PAR        =
-DEBUG      = -pg -g -Wall
 
-#redefine for testing optimizations
-OPT        = -O3
-# PAR        = -fopenmp
-# DEBUG      = -DNDEBUG
-
-#final compiler command
-CC = $(CXX) $(OPT) $(PAR) $(DEBUG)
-
-#final defines
+#explicit defines
 DEFINES = 
 ifdef TEST_DIM
 	DEFINES += -DTEST_DIM=$(TEST_DIM)
@@ -22,15 +11,35 @@ endif
 ifdef TEST_SCALAR
 	DEFINES += -DTEST_SCALAR=$(TEST_SCALAR)
 endif
+ifdef GUTIL_ORTHTREE_MAX_DEPTH
+	DEFINES += -DGUTIL_ORTHTREE_MAX_DEPTH=$(GUTIL_ORTHTREE_MAX_DEPTH)
+endif
+
+#debug vs release mode
+ifdef NDEBUG
+	CC = $(CXX) -O0 -Wall -pg
+else
+	CC = $(CXX) -O3
+endif
+
+#link to libraries
+LIBS = 
+ifdef OMP
+	LIBS += -fopenmp
+endif
+
+#final compile command
+COMPILE = ${CC} ${INCLUDE} ${LIBS} ${DEFINES}
+
 
 point: FORCE
-	${CC} ${INCLUDE} ${DEFINES} point.cpp -o point
+	${COMPILE} point.cpp -o point
 
 point_parallel: FORCE
-	${CC} ${INCLUDE} ${DEFINES} point_parallel.cpp -o point_parallel
+	${COMPILE} point_parallel.cpp -o point_parallel
 
 point_octree: FORCE
-	${CC} ${INCLUDE} ${DEFINES} point_octree.cpp -o point_octree
+	${COMPILE} point_octree.cpp -o point_octree
 
 FORCE:
 

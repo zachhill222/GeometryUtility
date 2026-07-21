@@ -152,15 +152,40 @@ namespace gutil
 				}
 			}
 		};
+
+		/// compute x * 2^a where x is a scalar and a is an integer
+		void ldexp() = delete;
+		struct ldexp_fn final {
+			template<IsScalar X, IsInteger A>
+			[[nodiscard]] GUTIL_STATIC_CALL constexpr X operator()(X x, A a) GUTIL_STATIC_CALL_CONST noexcept {
+				if constexpr (requires { ldexp(x,a); }) {
+					return ldexp(x,a);
+				}
+				else if constexpr (IsReal<X> && std::is_nothrow_convertible_v<X,double> && std::is_nothrow_convertible_v<A,int>) {
+					return static_cast<X>( std::ldexp( static_cast<double>(x), static_cast<int>(a) ) );
+				}
+				else if constexpr (IsInteger<X> && std::is_nothrow_convertible_v<X,int> && std::is_nothrow_convertible_v<A,int>) {
+					const int xx = static_cast<int>(x);
+					const int aa = static_cast<int>(a);
+					assert(aa>-32 && aa<32 && "gutil::ldexp - exponent is too large for cast to int fallback");
+					const int result = (aa>0) ? xx*(1<<aa) : xx/(1<<-aa);
+					return static_cast<X>(result);
+				}
+				else {
+					static_assert(always_false_v<X>, "gutil::ldexp - no function found");
+				}
+			}
+		};
 	}
 
-	inline constexpr _cpo_::sqrt_fn sqrt{};
-	inline constexpr _cpo_::fma_fn fma{};
-	inline constexpr _cpo_::sin_fn sin{};
-	inline constexpr _cpo_::cos_fn cos{};
-	inline constexpr _cpo_::tan_fn tan{};
-	inline constexpr _cpo_::atan2_fn atan2{};
-	inline constexpr _cpo_::fmod_fn fmod{};
+	inline constexpr _cpo_::sqrt_fn		sqrt{};
+	inline constexpr _cpo_::fma_fn 		fma{};
+	inline constexpr _cpo_::sin_fn 		sin{};
+	inline constexpr _cpo_::cos_fn 		cos{};
+	inline constexpr _cpo_::tan_fn 		tan{};
+	inline constexpr _cpo_::atan2_fn	atan2{};
+	inline constexpr _cpo_::fmod_fn 	fmod{};
+	inline constexpr _cpo_::ldexp_fn 	ldexp{};
 
 
 	///////////////////////////////////////////////////////////

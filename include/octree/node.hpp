@@ -3,28 +3,40 @@
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
 #include "memory/base_allocator.hpp"
+#include "memory/tagged_pointer.hpp"
 
+#include "octree/index_key.hpp"
 
 #include <array>
 #include <concepts>
 #include <cstdint>
 #include <bit>
 
-namespace gutil
-{
-	//define tags for node types
-	namespace NodeTag
-	{
+
+
+
+namespace gutil {
+	/////////////////////////////////////////////////////////////////
+	/// In an orthtree, we allow different types of nodes for the 
+	/// internal and leaf nodes. Use a tagged pointer to differentiate
+	/// between the two. For portability, the tag is put into the low
+	/// bits of the pointer using alignment to guarentee that the low
+	/// bits are free.
+	/////////////////////////////////////////////////////////////////
+	namespace NodeTag {
 		inline constexpr uintptr_t NONE     = 0;
 		inline constexpr uintptr_t LEAF     = 1;
 		inline constexpr uintptr_t INTERNAL = 2;
-		inline constexpr size_t    NODE_ALIGN_BYTES = 8;
+		inline constexpr size_t    NODE_ALIGN_BYTES = 64;
 	}
 
-	//class for octree compile time options
+
+	/////////////////////////////////////////////////////////////////
+	///	Options to pass to the orthtree.
+	/// TODO: redo this.
+	/////////////////////////////////////////////////////////////////
 	template<typename ValueType, bool VolumeData, int MaxData, int DIM, typename ScalarT>
-	struct NodeOpts
-	{
+	struct NodeOpts {
 		static constexpr int DIMENSION 		  = DIM;
 		static constexpr int MAX_DATA 	  = MaxData;
 		static constexpr int N_CHILDREN 	  = (1 << DIM);
@@ -56,85 +68,39 @@ namespace gutil
 		typename T::index_type;
 	};
 
-	//we use tagged pointers to differentiate between internal and leaf nodes
-	//it is imperative that the nodes are aligned correctly so that the last several bits
-	//of the pointer may be used for the tag (they will always be 0 due to the alignment)
-	//high bits could be used without the alignment, but that will be platform dependent.
-	//note if a type T is aligned to 4 bytes, the last 2 bits will be free. Similarly,
-	//if the alignment is 16, the last 4 bits will be free.
-	template<size_t AlignBytes>
-	struct TaggedPointer
-	{
-		static_assert( (AlignBytes & (AlignBytes-1)) == 0, "TaggedPointer: alignment must be a power of 2");
-		static constexpr uintptr_t TAG_BITS = std::bit_width(AlignBytes) - 1;
-		static constexpr uintptr_t TAG_MASK = AlignBytes-1; //same as (uintptr_t{1} << TAG_BITS) - 1
-		static constexpr uintptr_t PTR_MASK = ~TAG_MASK;
-		uintptr_t _data_{0};	//nullptr, tag is 0
+	
 
-		//allow static cast when the caller knows the type,
-		//same as t_ptr.template pointer<T>(), but more readable 
-		template<typename T> requires (alignof(T) >= AlignBytes)
-		explicit operator T*() const {
-			if constexpr (requires {{T::TAG} -> std::convertible_to<uintptr_t>;}) {
-				assert(T::TAG == tag() && "TaggedPointer: tag mismatch");
-			}
-			return reinterpret_cast<T*>(_data_&PTR_MASK);
-		}
+	/////////////////////////////////////////////////////////////////
+	/// Define the base node type.
+	/////////////////////////////////////////////////////////////////
+	// template<IsNodeOpts Opts>
+	// struct LeafNode;
 
-		template<typename T> requires (alignof(T) >= AlignBytes)
-		explicit operator const T*() const {
-			if constexpr (requires {{T::TAG} -> std::convertible_to<uintptr_t>;}) {
-				assert(T::TAG == tag() && "TaggedPointer: tag mismatch");
-			}
-			return reinterpret_cast<const T*>(_data_&PTR_MASK);
-		}
-
-		//get the tag
-		uintptr_t tag() const {return _data_&TAG_MASK;}
-
-		//set the tag
-		void set_tag(const uintptr_t t) {
-			_data_ &= PTR_MASK;
-			_data_ |= (t&TAG_MASK);
-		}
-
-		//check if the pointer is null
-		bool is_null() const {return (_data_&PTR_MASK) == 0;}
-
-		//factory to make a null pointer
-		static constexpr TaggedPointer null() {return TaggedPointer{};}
-
-		//construct a tagged pointer from a pointer
-		template<typename T> requires (alignof(T) >= AlignBytes)
-		TaggedPointer(T* ptr, const uintptr_t t=0) : _data_(reinterpret_cast<uintptr_t>(ptr)) {set_tag(t);}
-
-		template<typename T> requires (alignof(T) >= AlignBytes)
-		TaggedPointer(const T* ptr, const uintptr_t t=0) : _data_(reinterpret_cast<uintptr_t>(ptr)) {set_tag(t);}
-
-		//default is null
-		constexpr TaggedPointer() noexcept : _data_{0} {}
-
-		//comparisons
-		bool operator==(const TaggedPointer other) const {return _data_ == other._data_;}
-		bool operator<(const TaggedPointer other) const {return _data_ < other._data_;}
-	};
-
-	//forward declare leaf/internal types
-	template<IsNodeOpts Opts>
-	struct LeafNode;
-
-	template<IsNodeOpts Opts>
-	struct InternalNode;
+	// template<IsNodeOpts Opts>
+	// struct InternalNode;
 
 	//base class for nodes
-	template<IsNodeOpts Opts>
-	struct alignas(NodeTag::NODE_ALIGN_BYTES) NodeBase
-	{
-		using box_type     = typename Opts::box_type;
-		using point_type   = typename Opts::point_type;
-		using scalar_type  = typename Opts::scalar_type;
-		using tag_ptr_type = TaggedPointer<NodeTag::NODE_ALIGN_BYTES>;
+	template<int DIM, IsScalar T> requires (DIM>0)	//we get binary trees for free
+	struct alignas(NodeTag::NODE_ALIGN_BYTES) NodeBase {
 
+
+		/////////////////////////////////////////////////////////////////
+		/// Define types and constants
+		/////////////////////////////////////////////////////////////////
+		using box_type     = Box<DIM,T>;
+		using point_type   = Point<DIM,T>;
+		using scalar_type  = T;
+		using tag_ptr_type = TaggedPointer<NodeTag::NODE_ALIGN_BYTES>;
+		using key_type     = IndexKey<DIM>;
+		static constexpr int MAX_DEPTH = static_cast<int>(key_type::MAX_DEPTH);
+
+
+		/////////////////////////////////////////////////////////////////
+		/// Define quantities that must be stored for all node types.
+		/// Note that the derived types must store a TAG for the tagged pointer.
+		/////////////////////////////////////////////////////////////////
+		key_type key;
+		
 		//constructor must always set the box
 		NodeBase(const box_type& box) : bbox(box) {}
 
@@ -287,7 +253,7 @@ namespace gutil
 			//the bits of the child number encode the octant that it owns
 			//ex. if n = (011)_2, then it is the 'high' side of axis 0 and 1, but the 'low' side of axis 2
 			for (size_t n=0; n<N_CHILDREN; ++n) {
-				point_type vertex = bbox.voxelvertex(n); //same bit operations
+				point_type vertex = bbox.vertex(n); //same bit operations
 				leaf_type* leaf = _alloc_.construct(box_type{vertex, center});
 
 				assert((reinterpret_cast<uintptr_t>(leaf) & 0x7) == 0

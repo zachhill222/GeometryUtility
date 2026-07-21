@@ -24,6 +24,8 @@ using namespace gutil;
 using point_type = Point<TEST_DIM,TEST_SCALAR>;
 using Scalar = TEST_SCALAR;
 
+using tree_type = PointOctree<point_type>;
+
 std::vector<point_type> generate_points(size_t N) {
 	std::cout << "\n";
 	Logger::log("START: generate_points");
@@ -44,7 +46,7 @@ std::vector<point_type> generate_points(size_t N) {
 	return result;
 }
 
-auto generate_random_tree(size_t N) {
+tree_type generate_random_tree(size_t N) {
 	std::cout << "\n";
 	Logger::log("START: generate_random_tree");
 	LogTime time{"END: generate_random_tree"};
@@ -52,7 +54,7 @@ auto generate_random_tree(size_t N) {
 	auto random_point = UniformRandomPoint<point_type,false>();
 	random_point.set_parameters(Scalar{-10}, Scalar{10});
 
-	PointOctree<point_type> tree{Box{point_type::Filled(Scalar{-10}), point_type::Filled(Scalar{10})}};
+	tree_type tree{Box{point_type::Filled(Scalar{-10}), point_type::Filled(Scalar{10})}};
 	tree.reserve(N);
 
 	for (size_t i=0; i<N; ++i) {
@@ -144,7 +146,7 @@ std::vector<size_t> find_nearest_octree(const PointOctree<point_type>& tree, std
 
 	GUTIL_OMP(parallel for)
 	for (size_t i=0; i<N; ++i) {
-		result[i] = tree.nearest(query[i]);
+		result[i] = tree.find_nearest(query[i]);
 	}
 
 	return result;
@@ -230,7 +232,7 @@ int main(int argc, char** argv) {
 	std::cout << "\nOctree points:\n";
 	gutil::print_to_stream(std::cout, std::span<const point_type>(tree.begin(), tree.begin()+5), "\n");
 
-	std::cout << tree;
+	// std::cout << tree;
 
 	return 0;
 }

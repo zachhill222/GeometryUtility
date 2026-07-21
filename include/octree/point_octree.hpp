@@ -1,43 +1,60 @@
 #pragma once
 
 #include "geometry/point.hpp"
-#include "octree/node.hpp"
-#include "octree/octree_base.hpp"
+#include "geometry/box.hpp"
 
-#include <span>
+#include "octree/base_node.hpp"
+#include "octree/base_octree.hpp"
 
 namespace gutil {
-	template<IsPoint PointType, size_t MaxData>
-	using PointOctreeOpts = NodeOpts<PointType, false, MaxData, PointType::DIMENSION, typename PointType::scalar_type>;
+	
+	template<IsPoint PointType>
+	struct PointOctreeOpts {
+		static constexpr bool HAS_DISTANCE_SQ = true;
+		static constexpr bool VOLUME_DATA = false;
+		static constexpr int DIMENSION = PointType::DIMENSION;
 
-	template<IsPoint PointType, size_t MaxData=64>
-	struct PointOctree : public OctreeBase<PointOctreeOpts<PointType,MaxData>, PointOctree<PointType,MaxData>> {
-		static constexpr bool HAS_DISTANCE = true;
+		using scalar_type = typename PointType::scalar_type;
+		using value_type  = PointType;
+		using point_type  = PointType;
+		using box_type    = Box<DIMENSION,scalar_type>;
+		using node_type   = Node<size_t, DIMENSION, scalar_type, 64, void, void>;
+	};
 
-		using BASE = OctreeBase<PointOctreeOpts<PointType,MaxData>, PointOctree<PointType,MaxData>>;
 
-		using scalar_type = typename BASE::scalar_type;
-		using point_type  = typename BASE::point_type;
-		using value_type  = typename BASE::value_type;
-		using box_type    = typename BASE::box_type;
-		static_assert(std::same_as<value_type, point_type>);
+	template<IsPoint PointType>
+	struct PointOctree : public BaseOctree<PointOctree<PointType>, PointOctreeOpts<PointType>> {
 
+
+		////////////////////////////////////////////////////////////////
+		// Constants and aliases
+		////////////////////////////////////////////////////////////////
+		using OPTS = PointOctreeOpts<PointType>;
+		using BASE = BaseOctree<PointOctree<PointType>, PointOctreeOpts<PointType>>;
+		
+		using value_type  = typename OPTS::value_type;
+		using box_type    = typename OPTS::box_type;
+		using point_type  = typename OPTS::point_type;
+		using scalar_type = typename OPTS::scalar_type;
+
+		////////////////////////////////////////////////////////////////
+		// Convenient constructors
+		////////////////////////////////////////////////////////////////
 		using BASE::BASE;
-		using BASE::operator=;
 
-		PointOctree(std::span<value_type> points) : BASE(box_type{points}) {
-			BASE::batch_insert(points);
+		PointOctree(std::span<value_type> points) : BASE(points) {
+			BASE::push_back_range(points);
 		}
 
-		PointOctree(std::span<const value_type> points) : BASE(box_type{points}) {
-			BASE::batch_insert(points);
-		}
 
+		////////////////////////////////////////////////////////////////
+		// Implementation of CRTP interface
+		////////////////////////////////////////////////////////////////
 		bool intersects_impl(const box_type& box, const value_type& value) const {
 			return box.contains(value);
 		}
 
-		scalar_type distance_squared_impl(const point_type& point, const value_type& value) const {
+		scalar_type distance_sq_impl(const point_type& point, const value_type& value) const {
 			return gutil::squared_norm(point-value);
 		}
 
@@ -45,9 +62,4 @@ namespace gutil {
 			return value;;
 		}
 	};
-
-	static_assert(IsOctree<PointOctree<Point<3,float>>>);
-	static_assert(IsOctree<PointOctree<Point<3,double>>>);
-	static_assert(IsOctree<PointOctree<Point<2,float>>>);
-	static_assert(IsOctree<PointOctree<Point<2,double>>>);
 }

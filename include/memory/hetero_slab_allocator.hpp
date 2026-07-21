@@ -32,7 +32,7 @@ namespace gutil {
 		std::tuple<SlabAllocator<Ts>...> _pools_;
 
 		template<typename T> requires (type_in_pack_v<T, Ts...>)
-		TypedAllocatorView<SlabAllocator<T>,T> view() {
+		TypedAllocatorView<T,SlabAllocator<T>> view() {
 			return {std::get<SlabAllocator<T>>(_pools_)};
 		}
 
