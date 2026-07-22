@@ -75,10 +75,12 @@ namespace gutil {
 		//starting time of the program, sychronization mutex, and output stream
 		static inline std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 		static inline std::mutex mtx{};
-		static inline std::ostream* os = &std::cout;
+		static inline std::ostream* out = &std::cout;
+		static inline std::ostream* err = &std::cerr;
 
 		//change the output stream
-		static void set_output(std::ostream& os_) {os = &os_;}
+		static void set_output(std::ostream& os) {out = &os;}
+		static void set_error(std::ostream& os) {err = &os;}
 
 		//write to the ouput stream (thread safe)
 		template<typename... Ts>
@@ -89,16 +91,35 @@ namespace gutil {
 			std::lock_guard<std::mutex> lock(mtx);
 
 			#ifdef _OPENMP
-			*os   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
 					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
-			*os   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
 					<< "thread=" << std::this_thread::get_id() << "] "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
-			os -> flush();
+			out -> flush();
+		}
+
+		template<typename... Ts>
+		static void error(const Ts&... args) {
+			const auto now = std::chrono::steady_clock::now();
+			const double elapsed = std::chrono::duration<double>(now - start_time).count();
+
+			std::lock_guard<std::mutex> lock(mtx);
+			#ifdef _OPENMP
+			*err   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] "
+					<< (gutil::to_string(args) + ...) << "\n";
+			#else
+			*err   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					<< "thread=" << std::this_thread::get_id() << "] "
+					<< (gutil::to_string(args) + ...) << "\n";
+			#endif
+
+			err -> flush();
 		}
 	};
 

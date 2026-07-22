@@ -8,6 +8,7 @@
 #include "octree/base_node.hpp"
 #include "octree/node_policies.hpp"
 
+#include <concepts>
 
 #ifndef GUTIL_N_OCTREE_THREADS
 	#define GUTIL_N_OCTREE_THREADS 4
@@ -55,10 +56,21 @@ namespace gutil {
 		/// Data, tree, thread resources
 		////////////////////////////////////////////////////////////////
 		std::vector<value_type> data_{};
-		
 		node_type* root_{nullptr};
-		typename node_type::allocator_type root_alloc_{};
-		typename node_type::data_allocator_type index_alloc_{};
+
+		struct DummyResource {};
+		
+		using node_alloc_type = typename node_type::node_alloc_type;
+		using node_resource_type = std::conditional_t< std::same_as<typename Opts::node_resource_type,void>, DummyResource, typename Opts::node_resource_type >;
+		[[no_unique_address]] node_resource_type node_resource_{};
+		node_alloc_type node_alloc_{};
+
+
+		using index_alloc_type = typename node_type::data_alloc_type;
+		using index_resource_type = std::conditional_t< std::same_as<typename Opts::index_resource_type,void>, DummyResource, typename Opts::index_resource_type >;
+		[[no_unique_address]] index_resource_type index_resource_{};
+		index_alloc_type index_alloc_{};
+
 
 		ThreadPool threads_{GUTIL_N_OCTREE_THREADS};
 		static constexpr size_t SPAWN_THREAD_THRESHOLD = GUTIL_OCTREE_SPAWN_THREAD_THRESHOLD;
@@ -70,15 +82,33 @@ namespace gutil {
 		void destroy_root() noexcept {
 			if (root_) {
 				using traits = typename node_type::alloc_traits;
-				traits::destroy(root_alloc_, root_);
-				traits::deallocate(root_alloc_, root_, 1);
+				traits::destroy(node_alloc_, root_);
+				traits::deallocate(node_alloc_, root_, 1);
 				root_ = nullptr;
 			}
 		}
 
 		node_type* construct_root(const box_type& box) {
 			assert(root_==nullptr);
-			return node_type::ConstructRoot(box, root_alloc_, index_alloc_);
+			return node_type::ConstructRoot(box, node_alloc_, index_alloc_);
+		}
+
+		[[nodiscard]] node_alloc_type make_node_allocator() noexcept {
+			if constexpr (std::same_as<DummyResource,node_alloc_type>) {
+				return node_alloc_type{};
+			}
+			else {
+				return node_alloc_type(&node_resource_);
+			}
+		}
+
+		[[nodiscard]] index_alloc_type make_index_allocator() noexcept {
+			if constexpr (std::same_as<DummyResource,index_alloc_type>) {
+				return index_alloc_type{};
+			}
+			else {
+				return index_alloc_type(&index_resource_);
+			}
 		}
 
 
@@ -91,6 +121,10 @@ namespace gutil {
 
 		[[nodiscard]] bool intersects(const box_type& box, const value_type& value) const noexcept {
 			return static_cast<const Derived*>(this) -> intersects_impl(box, value);
+		}
+
+		[[nodiscard]] bool intersects(const value_type& A, const value_type& B) const noexcept requires(Opts::VOLUME_DATA) {
+			return static_cast<const Derived*>(this) -> intersects_impl(A,B);
 		}
 
 		[[nodiscard]] point_type get_point(const value_type& value)  const noexcept {
@@ -122,7 +156,11 @@ namespace gutil {
 		/// Set the bounding box
 		template<typename... Args>
 		BaseOctree(Args&&...  args) : 
-			root_{nullptr} {
+			root_{nullptr},
+			node_resource_{},
+			node_alloc_(make_node_allocator()),
+			index_resource_{},
+			index_alloc_(make_index_allocator()) {
 				root_ = construct_root(box_type{std::forward<Args>(args)...});
 			}
 
@@ -180,6 +218,10 @@ namespace gutil {
 
 		size_t push_back(value_type value) noexcept {return 0;};
 		
+		void push_back_range(std::vector<value_type>&& values) noexcept {
+			push_back_range(std::span<value_type>{values.begin(), values.end()});
+		}
+
 		void push_back_range(std::span<value_type> values) noexcept {
 			size_t idx_start = data_.size();
 			data_.insert( 	data_.end(),
@@ -187,18 +229,32 @@ namespace gutil {
 							std::make_move_iterator(values.end()));
 
 			std::span<value_type> moved_vals{data_.begin()+idx_start, data_.end()};
-			recursive_sort_and_insert(root_, idx_start, moved_vals);
+
+			if constexpr (GUTIL_N_OCTREE_THREADS>0) {
+				threads_.submit([&]() { recursive_sort_and_insert(root_, idx_start, moved_vals); });
+				threads_.wait_idle();	
+			}
+			else {
+				recursive_sort_and_insert(root_, idx_start, moved_vals);
+			}
 		}
 		
 		[[nodiscard]] size_t find(const value_type& value) const noexcept;
 		
 		[[nodiscard]] size_t find_nearest(const point_type& point) const noexcept requires(Opts::HAS_DISTANCE_SQ) {
-			if (data_.empty()) {return size_t(-1); }
+			if (data_.empty()) { return size_t(-1); }
 
 			size_t idx=0;
 			scalar_type d2 = distance_sq(point, data_[idx]);
 			recursive_find_nearest(root_, point, d2, idx);
 			return idx;
+		}
+
+		[[nodiscard]] size_t collides_with(const value_type& value) const noexcept requires(Opts::VOLUME_DATA) {
+			if (data_.empty()) { return size_t(-1); }
+
+			const node_type* node = find_node(value);
+			return node->data.find( [&](size_t i) { return this->intersects(value, data_[i]); });
 		}
 
 		void sort_and_deduplicate(std::span<value_type> values) noexcept;
@@ -226,7 +282,7 @@ namespace gutil {
 			
 			node_type* node = root_;
 			while(!node->is_leaf()) {
-				assert( intersects(node->bbox, value) );
+				GUTIL_ASSERT( intersects(node->bbox, value) );
 
 				const int child = get_child_node(node, value);
 
@@ -261,7 +317,7 @@ namespace gutil {
 		//we assume that the values are already de-duplicated with the existing data or that deduplication
 		//is unnecessary.
 		//the values span should be a span to the end of the data_ vector
-
+		
 		if (node->is_leaf()) {
 			if (node->data.remaining() < values.size()) {
 				node->split();
@@ -277,6 +333,7 @@ namespace gutil {
 			}
 			else {
 				for (size_t i=0; i<values.size(); ++i) {
+					GUTIL_ASSERT(intersects(node->bbox, data_[idx_start+i]));
 					node->data.push_back(idx_start + i);
 				}
 			}
@@ -288,7 +345,7 @@ namespace gutil {
 					[this](const value_type& v, const box_type& b) { return this->intersects(v,b); });
 
 				//insert into current node
-				assert( node->data.remaining() >= sorted.bin_size(N_CHILDREN) );
+				GUTIL_ASSERT( node->data.remaining() >= sorted.bin_size(N_CHILDREN) );
 				const size_t idx_offset = idx_start + sorted.bin_start(N_CHILDREN);	//values that stay are sorted to the end
 				auto list = sorted.get_bin(N_CHILDREN);
 				for (size_t i=0; i<list.size(); ++i) {
@@ -296,13 +353,31 @@ namespace gutil {
 				}
 			}
 			else {
+				GUTIL_ASSERT(node->data.empty());
 				sorted = node_type::PartitionToOrthant(values, node->bbox.center(), 
 					[this](const value_type& v) { return this->get_point(v); });
 			}
 
 			//recurse
 			for (int c=0; c<N_CHILDREN; ++c) {
-				recursive_sort_and_insert(node->children + c, idx_start + sorted.bin_start(c), sorted.get_bin(c));
+				if constexpr (GUTIL_N_OCTREE_THREADS>0) {
+					const bool spawn_thread = (c==N_CHILDREN-1) ? false : sorted.bin_size(c) >= SPAWN_THREAD_THRESHOLD;
+
+					if (spawn_thread) {
+						node_type* child = node->children + c;
+						auto list = sorted.get_bin(c);
+						size_t start = idx_start + sorted.bin_start(c);
+
+						auto fun = [this,child,list,start]() {this->recursive_sort_and_insert(child, start, list);};
+						threads_.submit(fun);
+					}
+					else {
+						recursive_sort_and_insert(node->children + c, idx_start + sorted.bin_start(c), sorted.get_bin(c));
+					}
+				}
+				else {
+					recursive_sort_and_insert(node->children + c, idx_start + sorted.bin_start(c), sorted.get_bin(c));
+				}
 			}
 		}
 	}
@@ -363,7 +438,8 @@ namespace gutil {
 	[[nodiscard]] size_t BaseOctree<D,O>::find(const value_type& value) const noexcept {
 		node_type* node = find_node(value);
 		if (node) {
-			return node->data.find( [this, &value](size_t idx) { return data_[idx]==value; } );
+			size_t* idx = node->data.find( [this, &value](size_t idx) { return data_[idx]==value; } );
+			return idx==nullptr ? size_t(-1) : *idx;
 		}
 		return size_t(-1);
 	}

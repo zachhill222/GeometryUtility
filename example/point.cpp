@@ -110,7 +110,8 @@ auto move_to_octree(std::span<point_type> list) {
 	Logger::log("START: move_to_octree");
 	LogTime time{"END: move_to_octree"};
 
-	PointOctree<point_type> tree{list};
+	PointOctree<point_type> tree{point_type::Filled(-10), point_type::Filled(10)};
+	tree.push_back_range(list);
 
 	std::cout << "\tcreated the octree with " << tree.size() << " points" << std::endl;
 	return tree;
@@ -215,14 +216,19 @@ void compare_nearest(std::span<const point_type> points, std::span<const point_t
 
 int main(int argc, char** argv) {
 	size_t N = argc > 1 ? atoi(argv[1]) : 100000;
-	std::vector<point_type> points = generate_points(N);
-	std::vector<point_type> query = generate_points(100);
+	std::vector<point_type> points = generate_points(N/2);
+	std::vector<point_type> query = generate_points(10);
 
 	test_standard_sum(points);
 	// test_sorted_sum(points);
 	test_kahan_sum(points);
 	// construct_unordered_set(points);
 	auto tree = move_to_octree(points);
+	{
+		auto p2 = generate_points(N/2);
+		tree.push_back_range(std::move(p2));
+	}
+
 	// {auto tree2 = generate_random_tree(N);}
 	test_octree_find(tree);
 	auto tree_near = find_nearest_octree(tree, query);

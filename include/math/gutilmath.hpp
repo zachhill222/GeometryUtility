@@ -10,16 +10,14 @@
 #include <functional>
 #include <type_traits>
 
-namespace gutil
-{
+namespace gutil {
 	///////////////////////////////////////////////////////////
 	/////////////// CUSTOMIZATION POINT OBJECTS ///////////////
 	///////////////////////////////////////////////////////////
 	// use Customization Point Objects to ensure that scalar functions
 	// go in the order of preference: user -> std -> fallback
 	///////////////////////////////////////////////////////////
-	namespace _cpo_
-	{
+	namespace _cpo_ {
 		void sqrt() = delete;	//keep the function name lookup in _cpo_ from seeing gutil::sqrt
 		struct sqrt_fn final {
 			template<IsReal T>

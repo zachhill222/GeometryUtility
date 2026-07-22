@@ -6,7 +6,7 @@
 #include <iostream>
 
 namespace gutil {
-
+	
 	template<typename T=double>
 	class Plane {
 	public:

@@ -15,15 +15,6 @@ namespace gutil
 {
 	//////////////////////////////////////////////////////////
 	/// A class for cartesian points in space
-	///
-	/// Can be treated as a vector with no column or row orientation.
-	///
-	/// @tparam DIM   The spacial dimension. These points are allocated
-	///                   on the stack, so DIM shouldn't be too large.
-	/// @tparam T     The underlying numeric type
-	///
-	/// Note that the type T must implement any comparisons if
-	/// floating point rounding is important and unacceptable.
 	//////////////////////////////////////////////////////////
 	template<int DIM, IsScalar T=double> requires (DIM>0)
 	struct Point

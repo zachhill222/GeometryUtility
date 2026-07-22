@@ -20,12 +20,16 @@ namespace gutil
 		//every shape has a center
 		point_type center{T{0}, T{0}, T{0}};
 
-		constexpr T dist2center_squared(const point_type& point) const noexcept {
+		[[nodiscard]] constexpr T dist2center_squared(const point_type& point) const noexcept {
 			return gutil::normSquared(point-center);
 		}
 
-		constexpr T dist2center(const point_type& point) const noexcept {
+		[[nodiscard]] constexpr T dist2center(const point_type& point) const noexcept {
 			return gutil::norm2(point-center);
+		}
+
+		[[nodiscard]] constexpr T distance_sq(const point_type& point) const noexcept {
+			return static_cast<const Derived*>(this) -> distance_sq_impl(point);
 		}
 
 		constexpr void translate_to(const point_type& point) noexcept {
@@ -37,20 +41,25 @@ namespace gutil
 		}
 
 		//every shape must implement this interface
-		constexpr point_type local2global(const point_type& point) const noexcept {
+		[[nodiscard]] constexpr point_type local2global(const point_type& point) const noexcept {
 			return static_cast<const Derived*>(this) -> local2global_impl(point);
 		}
 
-		constexpr point_type global2local(const point_type& point) const noexcept {
+		[[nodiscard]] constexpr point_type global2local(const point_type& point) const noexcept {
 			return static_cast<const Derived*>(this) -> global2local_impl(point);
 		}
 
-		constexpr point_type support(const point_type& direction) const noexcept {
+		[[nodiscard]] constexpr point_type support(const point_type& direction) const noexcept {
 			return static_cast<const Derived*>(this) -> support_impl(direction);
 		}
 
-		constexpr box_type bbox() const noexcept {
+		[[nodiscard]] constexpr box_type bbox() const noexcept {
 			return static_cast<const Derived*>(this) -> bbox_impl();
+		}
+
+		template<typename Shape>
+		[[nodiscard]] constexpr bool intersects(const Shape& shape) const noexcept {
+			return gutil::collides_GJK<Shape,Derived,3,T>(shape, *static_cast<const Derived*>(this));
 		}
 	};
 
@@ -106,22 +115,22 @@ namespace gutil
 
 
 		//all rotatable shapes have the same global/local conversions
-		constexpr point_type local2global_impl(const point_type& point) const {
+		[[nodiscard]] constexpr point_type local2global_impl(const point_type& point) const {
 			//shift to rotate and shift
 			return quaternion.rotate(point) + center;
 		}
 
-		constexpr point_type global2local_impl(const point_type& point) const {
+		[[nodiscard]] constexpr point_type global2local_impl(const point_type& point) const {
 			//shift and rotate backwards
 			return quaternion.conj().rotate(point - center);
 		}
 
 		//pass other implementations to the actual shape
-		constexpr box_type bbox_impl() const noexcept {
+		[[nodiscard]] constexpr box_type bbox_impl() const noexcept {
 			return static_cast<const Derived*>(this) -> bbox_impl();
 		}
 
-		constexpr point_type support_impl(const point_type& direction) const noexcept {
+		[[nodiscard]] constexpr point_type support_impl(const point_type& direction) const noexcept {
 			return static_cast<const Derived*>(this) -> support_impl(direction);
 		}
 	};
@@ -138,20 +147,20 @@ namespace gutil
 		using BASE::BASE;
 		
 		//all non-rotatable shapes have the same global/local conversions
-		constexpr point_type local2global_impl(const point_type& point) const {
+		[[nodiscard]] constexpr point_type local2global_impl(const point_type& point) const {
 			return point + center;
 		}
 
-		constexpr point_type global2local_impl(const point_type& point) const {
+		[[nodiscard]] constexpr point_type global2local_impl(const point_type& point) const {
 			return point - center;
 		}
 
 		//pass other implementations to the actual shape
-		constexpr box_type bbox_impl() const noexcept {
+		[[nodiscard]] constexpr box_type bbox_impl() const noexcept {
 			return static_cast<const Derived*>(this) -> bbox_impl();
 		}
 
-		constexpr point_type support_impl(const point_type& direction) const noexcept {
+		[[nodiscard]] constexpr point_type support_impl(const point_type& direction) const noexcept {
 			return static_cast<const Derived*>(this) -> support_impl(direction);
 		}
 	};

@@ -4,3 +4,4 @@
 #include "geometry/box.hpp"
 #include "geometry/line.hpp"
 #include "geometry/line_segment.hpp"
+#include "geometry/utility_shapes.hpp"

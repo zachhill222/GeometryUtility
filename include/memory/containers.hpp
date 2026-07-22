@@ -40,6 +40,7 @@ namespace gutil {
 		/// Constructor, destructors, move, copy
 		////////////////////////////////////////////////////////////////
 		FixedArray() noexcept = default;
+		FixedArray(allocator_type alloc) : alloc_{alloc} {}
 
 		//no copy
 		FixedArray(const FixedArray&) = delete;
@@ -103,6 +104,7 @@ namespace gutil {
 		/// Implement stl container concept with a few other utility functions.
 		////////////////////////////////////////////////////////////////
 		[[nodiscard]] bool full() const noexcept { return size_ >= capacity_; }
+		[[nodiscard]] bool empty() const noexcept { return size_ == 0; }
 		[[nodiscard]] size_t size() const noexcept { return size_; }
 		[[nodiscard]] constexpr size_t capacity() const noexcept { return capacity_; }
 		[[nodiscard]] size_t remaining() const noexcept { return capacity_ - size_; }
@@ -132,11 +134,11 @@ namespace gutil {
 		}
 
 		template<typename Predicate>
-		[[nodiscard]] size_t find(Predicate&& pred) const noexcept {
+		[[nodiscard]] T* find(Predicate&& pred) const noexcept {
 			for (size_t i=0; i<size_; ++i) {
-				if ( pred(data_[i]) ) {return i;}
+				if ( pred(data_[i]) ) {return data_ + i;}
 			}
-			return size_t(-1);
+			return nullptr;
 		};
 
 

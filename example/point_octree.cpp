@@ -46,6 +46,7 @@ TreeType move_to_octree(std::span<point_type> list) {
 	LogTime time{"END: move_to_octree"};
 
 	TreeType tree{list};
+	std::cout << "\ttree contains " << tree.size() << " points\n";
 	return tree;
 }
 

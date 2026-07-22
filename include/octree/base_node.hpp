@@ -16,7 +16,7 @@
 #include <concepts>
 #include <cstdint>
 #include <bit>
-
+#include <memory_resource>
 
 namespace gutil {
 	/////////////////////////////////////////////////////////////////
@@ -28,17 +28,29 @@ namespace gutil {
 
 		/////////////////////////////////////////////////////////////////
 		/// Define types and constants.
+		///
+		/// To specify the allocator type, use a dummy type std::byte.
+		/// This dummy type will be rebound to Node. Note that the root node will
+		/// need an instantiated allocator passed to it to use when creating the children.
+		///
+		/// A similar process is used for the data allocator. To use the standard allocator,
+		/// you may leave the default 'void' option.
 		/////////////////////////////////////////////////////////////////
-		using allocator_type = std::conditional_t< std::same_as<NodeAllocator,void>, std::allocator<Node>, NodeAllocator>;
-		using alloc_traits   = std::allocator_traits<allocator_type>;
+		using seed_node_alloc_type = std::conditional_t< std::same_as<NodeAllocator,void>, std::allocator<std::byte>, NodeAllocator>;
+		using node_alloc_type = typename std::allocator_traits<seed_node_alloc_type>::template rebind_alloc<Node>;
+		using alloc_traits   = std::allocator_traits<node_alloc_type>;
 
-		using data_allocator_type = std::conditional_t< std::same_as<DataAllocator,void>, std::allocator<ValueType>, DataAllocator>;
+		// using allocator_type = std::conditional_t< std::same_as<NodeAllocator,void>, std::allocator<Node>, NodeAllocator>;
+		// using alloc_traits   = std::allocator_traits<allocator_type>;
+
+		using seed_data_alloc_type = std::conditional_t< std::same_as<DataAllocator,void>, std::allocator<std::byte>, DataAllocator>;
+		using data_alloc_type = typename std::allocator_traits<seed_data_alloc_type>::template rebind_alloc<ValueType>;
 
 		using box_type       = Box<DIM,T>;
 		using point_type     = Point<DIM,T>;
 		using scalar_type    = T;
 		using key_type       = IndexKey<DIM>;
-		using container_type = FixedArray<ValueType,MaxData,data_allocator_type>;
+		using container_type = FixedArray<ValueType,MaxData,data_alloc_type>;
 		using value_type     = ValueType;
 
 		static constexpr int MAX_DEPTH 	  = static_cast<int>(key_type::MAX_DEPTH);
@@ -60,7 +72,7 @@ namespace gutil {
 		Node* children{nullptr};
 		container_type data{};
 
-		allocator_type alloc_{};
+		node_alloc_type alloc_{};
 
 		
 		/////////////////////////////////////////////////////////////////
@@ -94,12 +106,20 @@ namespace gutil {
 
 		~Node() noexcept { destroy_children(); }
 
+		/// Initialize the root node with constructors
+		Node(const box_type& box, node_alloc_type& n_alloc, data_alloc_type& d_alloc) :
+			key{key_type::Root()},
+			bbox{box},
+			data{d_alloc},
+			alloc_{n_alloc} {}
+
 
 		/// Initialize a node by splitting its parent
 		Node(Node* parent, int c) : 
 			key{parent->key.child(c)}, 
 			bbox{parent->bbox.center(), parent->bbox.vertex(c)},
-			alloc_{parent->alloc_} { data.alloc_ = parent->data.alloc_; }
+			alloc_{parent->alloc_},
+			data{parent->data.alloc_} {}
 
 		/// Destroy and deallocate child nodes
 		void destroy_children() noexcept {
@@ -124,12 +144,9 @@ namespace gutil {
 		}
 
 		/// Factory method to contruct the root node
-		[[nodiscard]] static Node* ConstructRoot(const box_type& box, allocator_type& alloc, data_allocator_type& d_alloc) noexcept {
-			Node* node = alloc_traits::allocate(alloc, 1);
-			alloc_traits::construct(alloc, node);
-			node->bbox = box;
-			node->alloc_ = alloc;
-			node->data.alloc_ = d_alloc;
+		[[nodiscard]] static Node* ConstructRoot(const box_type& box, node_alloc_type& n_alloc, data_alloc_type& d_alloc) noexcept {
+			Node* node = alloc_traits::allocate(n_alloc, 1);
+			alloc_traits::construct(n_alloc, node, box, n_alloc, d_alloc);
 			return node;
 		}
 

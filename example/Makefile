@@ -14,12 +14,17 @@ endif
 ifdef GUTIL_ORTHTREE_MAX_DEPTH
 	DEFINES += -DGUTIL_ORTHTREE_MAX_DEPTH=$(GUTIL_ORTHTREE_MAX_DEPTH)
 endif
+ifdef GUTIL_N_OCTREE_THREADS
+	DEFINES += -DGUTIL_N_OCTREE_THREADS=$(GUTIL_N_OCTREE_THREADS)
+endif
+
 
 #debug vs release mode
 ifdef NDEBUG
-	CC = $(CXX) -O0 -Wall -pg
-else
 	CC = $(CXX) -O3
+	DEFINES += -DNDEBUG
+else
+	CC = $(CXX) -O0 -Wall -pg
 endif
 
 #link to libraries

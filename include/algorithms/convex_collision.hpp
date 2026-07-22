@@ -1,18 +1,15 @@
 #pragma once
 
-#include "geometry/basic_shapes.hpp"
-#include "geometry/point.hpp"
-#include "geometry/plane.hpp"
+#include "math/math.hpp"
+#include "geometry/geometry.hpp"
+#include "utility/utility.hpp"
 
 #include <concepts>
-
-#ifndef GUTIL_GJK_ZERO_TOL
-	#define GUTIL_GJK_ZERO_TOL 1E-12
-#endif
 
 #ifndef GUTIL_MAX_GJK_ITERATIONS
 	#define GUTIL_MAX_GJK_ITERATIONS 16
 #endif
+
 
 namespace gutil {
 //SA and SB are two classes that represent convex shapes with a methods:
@@ -25,252 +22,143 @@ namespace gutil {
 // and 
 // https://cs.brown.edu/courses/cs195u/lectures/04_advancedCollisionsAndPhysics.pdf
 
-template<typename S, int DIM, typename T>
-concept ShapeGJK = requires(const S& shape, const Point<DIM,T>& dir) {
-	{shape.support(dir)} -> std::convertible_to<Point<DIM,T>>;
-	{shape.center()} -> std::convertible_to<Point<DIM,T>>;
+
+/////////////////////////////////////////////////////////////////////
+/// Helper simplex type
+/////////////////////////////////////////////////////////////////////
+template<IsPoint PointType>
+struct SimplexGJK : Simplex<PointType> {
+	/////////////////////////////////////////////////////////////////
+	/// Aliases and sanity checks
+	////////////////////////////////////////////////////////////////
+	using BASE = Simplex<PointType>;
+	using BASE::size;
+	using BASE::data;
+	using BASE::DIMENSION;
+
+	using point_type = PointType;
+	using scalar_type = typename PointType::scalar_type;
+
+	static constexpr scalar_type ZERO_TOL = scalar_type{4} * gutil::Epsilon<scalar_type>::value;
+
+	static_assert( IsReal<scalar_type>, "SimplexGJK - scalar type must be real for GJK");
+
+
+	////////////////////////////////////////////////////////////////
+	/// Helper methods for GJK
+	////////////////////////////////////////////////////////////////
+	[[nodiscard]] constexpr bool line_case(point_type& direction) noexcept;
+	[[nodiscard]] constexpr bool triangle_case(point_type& direction) noexcept requires(DIMENSION==2);
+	[[nodiscard]] constexpr bool triangle_case(point_type& direction) noexcept requires(DIMENSION==3);
+	[[nodiscard]] constexpr bool tetra_case(point_type& direction) noexcept requires(DIMENSION==3);
+	[[nodiscard]] constexpr bool tetra_case(point_type&) noexcept requires(DIMENSION==2) = delete;
+	[[nodiscard]] constexpr bool gjk_iteration(point_type& direction) noexcept;
 };
 
 
-//SUPPORT FUNCTION IN MINKOWSKI DIFFERENCE
-template<typename SA, typename SB, int DIM=3, typename T=double> requires ShapeGJK<SA,DIM,T> and ShapeGJK<SB,DIM,T>
-Point<DIM,T> support(const SA& S1, const SB& S2, const Point<DIM,T>& direction)
-{
-	return static_cast<Point<DIM,T>>(S1.support(direction)) - static_cast<Point<DIM,T>>(S2.support(-direction));
-}
-
-//LINE CASE
-template <int DIM=3, typename T=double>
-bool lineCase(std::vector<Point<DIM,T>>& simplex, Point<DIM,T>& direction);
-
-//TRIANGLE CASE
-template <int DIM=3, typename T=double>
-bool triangleCase(std::vector<Point<DIM,T>>& simplex, Point<DIM,T>& direction);
-
-//FULL SIMPLEX (TETRAHEDRON) CASE
-template <typename T=double>
-bool tetraCase(std::vector<Point<3,T>>& simplex, Point<3,T>& direction);
-
-//WRAPPER FUNCTION FOR SPECIAL CASES
-template <int DIM=3, typename T=double>
-bool doSimplex(std::vector<Point<DIM,T>>& simplex, Point<DIM,T>& direction);
-
-
-
-//GJK IMPLEMENTATION
-template<typename SA, typename SB, int DIM, typename T=double> requires ShapeGJK<SA,DIM,T> and ShapeGJK<SB,DIM,T>
-bool collides_GJK(const SA& S1, const SB& S2)
-{
-	Point<DIM,T> direction = static_cast<Point<DIM,T>>(S1.center()) - static_cast<Point<DIM,T>>(S2.center());
-	Point<DIM,T> A = support(S1,S2,direction);
+template<IsPoint PointType>
+[[nodiscard]] bool SimplexGJK<PointType>::gjk_iteration(point_type& direction) noexcept {
+	//simplex must contain between 2 and 4 points initially
+	//simplex and direction will both be updated for the next iteration
 	
-	std::vector<Point<DIM,T>> simplex {A};
-	direction = -simplex[0];
-
-	//MAIN LOOP
-	for (int i=0; i<GUTIL_MAX_GJK_ITERATIONS; i++){
-		A = support(S1,S2,direction);
-
-		if (dot(A,direction) < T{0}){
-			return false;
-		}
-
-		simplex.push_back(A);
-
-		if (doSimplex(simplex, direction)) {
-			return true;
-		}
+	//GET NEW SEARCH DIRECTION
+	switch (this->size()){
+		case 2: return line_case(direction);
+		case 3: return triangle_case(direction);
+		case 4: return tetra_case(direction);
 	}
 
-	return true; //failed to converge, return collision to be safe.
-}
-
-
-//LINE CASE IMPLEMENTATION
-template <int DIM, typename T>
-bool lineCase(std::vector<Point<DIM,T>>& simplex, Point<DIM,T>& direction)
-{
-	assert(simplex.size()==2);
-
-	Point<DIM,T> &A = simplex[1]; //most recent point
-	Point<DIM,T> &B = simplex[0];
-
-	Point<DIM,T> AO = -A;
-	Point<DIM,T> AB = B-A;
-	
-	double DOT;
-
-	DOT = dot(AB,AO);
-	if (DOT>T{0})
-	{
-		// std::cout << "AB\n";
-		if constexpr (DIM==3){direction = cross(AB, cross(AO,AB));}
-		else if constexpr (DIM==2) {
-			Point<2,T> AB_perp{-AB[1], AB[0]};
-			direction = dot(AB_perp, AO) < T{0} ? -AB_perp : AB_perp;
-		}
-
-		//check if line segment contained the origin. AB and AO are co-linear.
-		if (squaredNorm(direction) <= GUTIL_GJK_ZERO_TOL)
-		{
-			return true;
-		}
-		// simplex = std::vector<Point<DIM,T>>({B, A}); //no change to simplex
-	}
-	else
-	{
-		direction = AO;
-		simplex = std::vector<Point<DIM,T>>({A});
-	}
+	GUTIL_ABORT("gjk_iteration - unknown simplex size");
 	return false;
 }
 
 
-//TRIANGLE CASE IMPLEMENTATION
-template <typename T>
-bool triangleCase3(std::vector<Point<3,T>>& simplex, Point<3,T>& direction){
-	assert(simplex.size()==3);
+template<IsPoint PointType>
+[[nodiscard]] constexpr bool SimplexGJK<PointType>::line_case(PointType& direction) noexcept {
+	GUTIL_ASSERT( this->size==2 );
 
-	Point<3,T> &A = simplex[2]; //most recent point
-	Point<3,T> &B = simplex[1];
-	Point<3,T> &C = simplex[0];
+	point_type& A = data[1]; //most recent point
+	point_type& B = data[0];
 
-	Point<3,T> AO  = -A;
-	Point<3,T> AB  = B-A;
-	Point<3,T> AC  = C-A;
-
-	Point<3,T> ABC_normal = cross(AB,AC); //normal to triangle
-	Point<3,T> AB_normal  = cross(AB,ABC_normal); //away from triangle, normal to edge AB, in triangle plane
-	Point<3,T> AC_normal  = cross(ABC_normal,AC); //away from triangle, normal to edge AB, in triangle plane
-
-	double DOT;
-
-	DOT = dot(AC_normal,AO);
-	if (DOT>0.0){
-		DOT = dot(AC,AO);
-		if (DOT>0.0)
-		{
-			direction = cross(AC, cross(AO,AC));
-			simplex = std::vector<Point<3,T>>({C,A});
+	point_type AO = -A;
+	point_type AB = B-A;
+	
+	if (gutil::dot(AB,AO) > scalar_type{0}) {
+		if constexpr (DIMENSION==3) { direction = gutil::cross(AB, gutil::cross(AO,AB)); }
+		else if constexpr (DIMENSION==2) {
+			point_type AB_perp{-AB[1], AB[0]};
+			direction = gutil::dot(AB_perp, AO) < scalar_type{0} ? -AB_perp : AB_perp;
 		}
-		else{
-			DOT = dot(AB,AO);
-			if (DOT>0.0)
-			{ //STAR
-				direction = cross(AB, cross(AO,AB));
-				simplex = std::vector<Point<3,T>>({B, A});
-			}
-			else
-			{
-				direction = AO;
-				simplex = std::vector<Point<3,T>>({A});
-			}
-		}
+
+		//check if line segment contained the origin. AB and AO are co-linear.
+		if (gutil::squared_norm(direction) <= ZERO_TOL*ZERO_TOL) { return true; }
 	}
-	else{
-		DOT = dot(AB_normal,AO);
-		if (DOT>0.0){
-			DOT = dot(AB,AO);
-			if (DOT>0.0)
-			{ //STAR
-				direction = cross(AB, cross(AO,AB));
-				simplex = std::vector<Point<3,T>>({B,A});
-			}
-			else
-			{
-				direction = AO;
-				simplex = std::vector<Point<3,T>>({A});
-			}
-		}
-		else
-		{
-			DOT = dot(ABC_normal,AO);
-			//above, below, or on triangle
-			if (DOT>GUTIL_GJK_ZERO_TOL)
-			{
-				direction = ABC_normal;
-				// simplex = std::vector<Point<3,T>>({C,B,A}); //no change to simplex
-			}
-			else if (DOT<-GUTIL_GJK_ZERO_TOL)
-			{
-				direction = -ABC_normal;
-				simplex = std::vector<Point<3,T>>({B, C, A}); //orientation matters
-			}
-			else {return true;}
-		}
+	else {
+		direction = AO;
+		this->set(A);
 	}
-
-	return false; //triangle PROBABLY doesn't contain the origin
+	return false;
 }
 
+template<IsPoint PointType>
+[[nodiscard]] constexpr bool SimplexGJK<PointType>::triangle_case(point_type& direction) noexcept requires (DIMENSION==2) {
+	GUTIL_ASSERT(this->size==3);	//full simplex case for 2D
 
-//FULL SIMPLEX (TRIANGLE) CASE IMPLEMENTATION FOR 2D
-template <typename T>
-bool triangleCase2(std::vector<Point<2,T>>& simplex, Point<2,T>& direction)
-{
-	assert(simplex.size()==3);
+	point_type& A = data[2]; //most recent point
+	point_type& B = data[1];
+	point_type& C = data[0];
 
-	Point<2,T> &A = simplex[2]; //most recent point
-	Point<2,T> &B = simplex[1];
-	Point<2,T> &C = simplex[0];
-
-	Point<2,T> AO = -A;
-	Point<2,T> AB = B-A;
-	Point<2,T> AC = C-A;
+	point_type AO = -A;
+	point_type AB = B-A;
+	point_type AC = C-A;
 
 	// 2D perpendiculars (90 degree rotation)
-	Point<2,T> AB_perp{-AB[1], AB[0]};  // perpendicular to AB
-	Point<2,T> AC_perp{AC[1], -AC[0]};   // perpendicular to AC
+	point_type AB_perp{-AB[1], AB[0]};  // perpendicular to AB
+	point_type AC_perp{AC[1], -AC[0]};   // perpendicular to AC
 	
 	// Make sure perpendiculars point away from triangle
 	// If AB_perp points toward C, flip it
-	if (dot(AB_perp, AC) > T{0}) {
+	if (gutil::dot(AB_perp, AC) > scalar_type{0}) {
 		AB_perp = -AB_perp;
 	}
-	if (dot(AC_perp, AB) > T{0}) {
+	if (gutil::dot(AC_perp, AB) > scalar_type{0}) {
 		AC_perp = -AC_perp;
 	}
 
-	double DOT;
-
 	// Check region near edge AC
-	DOT = dot(AC_perp, AO);
-	if (DOT > T{0}) {
+	if (gutil::dot(AC_perp, AO) > scalar_type{0}) {
 		// Origin is on the AC side
-		DOT = dot(AC, AO);
-		if (DOT > T{0}) {
+		if (gutil::dot(AC, AO) > scalar_type{0}) {
 			// Origin is in AC region
-			Point<2,T> AC_perp_to_O{-AC[1], AC[0]};
-			if (dot(AC_perp_to_O, AO) < T{0}) {
+			point_type AC_perp_to_O{-AC[1], AC[0]};
+			if (gutil::dot(AC_perp_to_O, AO) < scalar_type{0}) {
 				AC_perp_to_O = -AC_perp_to_O;
 			}
 			direction = AC_perp_to_O;
-			simplex = std::vector<Point<2,T>>({C, A});
+			this->set(C,A);
 		} else {
 			// Origin is in A region
 			direction = AO;
-			simplex = std::vector<Point<2,T>>({A});
+			this->set(A);
 		}
 		return false;
 	}
 
 	// Check region near edge AB
-	DOT = dot(AB_perp, AO);
-	if (DOT > T{0}) {
+	if (gutil::dot(AB_perp, AO) > scalar_type{0}) {
 		// Origin is on the AB side
-		DOT = dot(AB, AO);
-		if (DOT > T{0}) {
+		if (gutil::dot(AB, AO) > scalar_type{0}) {
 			// Origin is in AB region
-			Point<2,T> AB_perp_to_O{-AB[1], AB[0]};
-			if (dot(AB_perp_to_O, AO) < T{0}) {
+			point_type AB_perp_to_O{-AB[1], AB[0]};
+			if (gutil::dot(AB_perp_to_O, AO) < scalar_type{0}) {
 				AB_perp_to_O = -AB_perp_to_O;
 			}
 			direction = AB_perp_to_O;
-			simplex = std::vector<Point<2,T>>({B, A});
+			this->set(B,A);
 		} else {
 			// Origin is in A region
 			direction = AO;
-			simplex = std::vector<Point<2,T>>({A});
+			this->set(A);
 		}
 		return false;
 	}
@@ -280,89 +168,150 @@ bool triangleCase2(std::vector<Point<2,T>>& simplex, Point<2,T>& direction)
 }
 
 
-//FULL SIMPLEX (TETRAHEDRON) CASE IMPLEMENTATION FOR 3D
-template <typename T>
-bool tetraCase(std::vector<Point<3,T>>& simplex, Point<3,T>& direction)
-{
-	assert(simplex.size()==4);
+template<IsPoint PointType>
+[[nodiscard]] constexpr bool SimplexGJK<PointType>::triangle_case(PointType& direction) noexcept requires(DIMENSION==3) {
+	GUTIL_ASSERT( this->size==3 );
 
-	Point<3,T> &A = simplex[3]; //most recent point
-	Point<3,T> &B = simplex[2];
-	Point<3,T> &C = simplex[1];
-	Point<3,T> &D = simplex[0];
+	point_type& A = data[2]; //most recent point
+	point_type& B = data[1];
+	point_type& C = data[0];
 
-	Point<3,T> O = Point<3,T> {0,0,0};
+	point_type AO =  -A;
+	point_type AB = B-A;
+	point_type AC = C-A;
 
-	Plane<T> P;
-	T abc, adc, abd;
+	point_type ABC_normal = gutil::cross(AB,AC); //normal to triangle
+	point_type AB_normal  = gutil::cross(AB,ABC_normal); //away from triangle, normal to edge AB, in triangle plane
+	point_type AC_normal  = gutil::cross(ABC_normal,AC); //away from triangle, normal to edge AB, in triangle plane
 
-	//get distance to each plane, we know the orighin is in the negative side of the plane BCD because A is the most recent point
-	P   = Plane<T>(A,B,C); //normal faces out of tetrahedron
-	abc = P.dist(O);
-
-	P   = Plane<T>(A,D,C); //normal faces out of tetrahedron
-	adc = P.dist(O);
-
-	P   = Plane<T>(A,B,D); //normal faces out of tetrahedron
-	abd = P.dist(O);
-
-	// if all distances are negative, origin is in side the tetrahedron
-	T max_dist = max(abc,max(adc,abd));
-	// std::cout << "max_dist= " << max_dist << std::endl;
-	if (max_dist<0.0) {return true;}
-
-
-	// reduce to triangle case
-	T abc_dist = abs(abc);
-	T adc_dist = abs(adc);
-	T abd_dist = abs(abd);
-	T min_dist = std::min(abc_dist, std::min(adc_dist, abd_dist));
-	// std::cout << "min_dist= " << min_dist << std::endl;
-
-	if (abc_dist == min_dist)
-	{
-		// std::cout << "Plane BCA\n";
-		simplex = std::vector<Point<3,T>>({B, C, A});
+	if (gutil::dot(AC_normal,AO) > scalar_type{0}){
+		if (gutil::dot(AC,AO)>scalar_type{0}) {
+			direction = gutil::cross(AC, gutil::cross(AO,AC));
+			this->set(C,A);
+		}
+		else {
+			if (gutil::dot(AB,AO) > scalar_type{0}) { //STAR
+				direction = gutil::cross(AB, gutil::cross(AO,AB));
+				this->set(B,A);
+			}
+			else {
+				direction = AO;
+				this->set(A);
+			}
+		}
 	}
-	else if(adc_dist == min_dist)
-	{
-		// std::cout << "Plane CDA\n";
-		simplex = std::vector<Point<3,T>>({C, D, A});
-	}
-	else
-	{
-		// std::cout << "Plane DBA\n";
-		simplex = std::vector<Point<3,T>>({D, B, A});
-	}
-	
-
-	// run triangle case
-	return triangleCase3(simplex, direction);
-}
-
-
-//WRAPPER IMPLEMENATION
-template <int DIM, typename T>
-bool doSimplex(std::vector<Point<DIM,T>>& simplex, Point<DIM,T>& direction)
-{
-	//simplex must contain between 2 and 4 points initially
-	//simplex and direction will both be updated for the next iteration
-	
-	//GET NEW SEARCH DIRECTION
-	switch (simplex.size()){
-	case 2:
-		// std::cout << "LINE CASE\n";
-		return lineCase(simplex, direction);
-	case 3:
-		// std::cout << "TRIANGLE CASE\n";
-		if constexpr (DIM==2) {return triangleCase2(simplex, direction);}
-		else if constexpr (DIM==3) {return triangleCase3(simplex, direction);}
-	case 4:
-		// std::cout << "TETRAHEDRAL CASE\n";
-		if constexpr (DIM==3) {return tetraCase(simplex, direction);}
+	else {
+		if (gutil::dot(AB_normal,AO)>scalar_type{0}) {
+			if (gutil::dot(AB,AO)>scalar_type{0}) { //STAR
+				direction = gutil::cross(AB, gutil::cross(AO,AB));
+				this->set(B,A);
+			}
+			else {
+				direction = AO;
+				this->set(A);
+			}
+		}
+		else {
+			//above, below, or on triangle
+			const scalar_type dd = gutil::dot(ABC_normal,AO);
+			if (dd > ZERO_TOL) {
+				direction = ABC_normal;
+			}
+			else if (dd < -ZERO_TOL) {
+				direction = -ABC_normal;
+				this->set(B,C,A);
+			}
+			else {return true;}
+		}
 	}
 
-	throw std::runtime_error("doSimplex() - unkown simplex size");
 	return false;
 }
+
+
+template<IsPoint PointType>
+[[nodiscard]] bool SimplexGJK<PointType>::tetra_case(point_type& direction) noexcept requires(DIMENSION==3) {
+	GUTIL_ASSERT(this->size==4);
+
+	point_type& A = data[3]; //most recent point
+	point_type& B = data[2];
+	point_type& C = data[1];
+	point_type& D = data[0];
+
+	constexpr point_type O = point_type::Zeros();
+
+	//get the signed distance to each plane, we know the origin is in the negative side of 
+	//the plane BCD because A is the most recent point
+	Triangle3D<scalar_type> triangle;
+	triangle.set(A,B,C); const scalar_type abc = triangle.signed_normal_distance(O);
+	triangle.set(A,D,C); const scalar_type adc = triangle.signed_normal_distance(O);
+	triangle.set(A,B,D); const scalar_type abd = triangle.signed_normal_distance(O);
+	const scalar_type max_dist = gutil::max(abc, adc, abd);
+	if (max_dist<ZERO_TOL) { return true; }
+
+	// reduce to triangle case
+	const scalar_type abc_dist = gutil::abs(abc);
+	const scalar_type adc_dist = gutil::abs(adc);
+	const scalar_type abd_dist = gutil::abs(abd);
+	const scalar_type min_dist = gutil::min(abc_dist, adc_dist, abd_dist);
+
+	if (abc_dist == min_dist) { this->set(B,C,A); }
+	else if(adc_dist == min_dist) { this->set(C,D,A); }
+	else { this->set(D,B,A); }
+
+	// run triangle case
+	return triangle_case(simplex, direction);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//SUPPORT FUNCTION IN MINKOWSKI DIFFERENCE
+template<typename SA, typename SB> requires (std::same_as<typename SA::point_type, typename SB::point_type>)
+typename SA::point_type gjk_support(const SA& S1, const SB& S2, const typename SA::point_type& direction) {
+	return S1.support(direction) - S2.support(-direction);
+}
+
+//GJK IMPLEMENTATION
+template<typename SA, typename SB> requires (std::same_as<typename SA::point_type, typename SB::point_type>)
+bool collides_GJK(const SA& S1, const SB& S2) {
+	using point_type = typename SA::point_type;
+	using scalar_type = typename point_type::scalar_type;
+
+	//TODO: determine if we can get the center by S.center() or S.center for a better initial condition
+	point_type direction = point_type::Zeros();
+	direction[0] = scalar_type{1};
+
+	SimplexGJK simplex; simplex.set( gjk_support(S1, S2, direction) );
+	direction = -simplex[0];
+
+	//MAIN LOOP
+	for (int i=0; i<GUTIL_MAX_GJK_ITERATIONS; ++i) {
+		const point_type A = support(S1, S2, direction);
+
+		if (gutil::dot(A,direction) < scalar_type{0}){ return false; }
+
+		simplex.push_back(A);
+
+		if (simplex.gjk_iteration(direction)) { return true; }
+	}
+
+	return true; //failed to converge, return collision to be safe.
+}
+
+
 }
