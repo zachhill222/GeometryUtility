@@ -243,6 +243,9 @@ namespace gutil {
 			}
 		}
 		
+
+		[[nodiscard]] const box_type& bbox() const noexcept { return root_->bbox; }
+
 		[[nodiscard]] size_t find(const value_type& value) const noexcept;
 		
 		[[nodiscard]] size_t find_nearest(const point_type& point) const noexcept requires(Opts::HAS_DISTANCE_SQ) {

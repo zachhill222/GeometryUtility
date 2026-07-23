@@ -63,6 +63,19 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		using BASE::BASE;
 
+		VolumeOctree(std::vector<value_type>&& list) VolumeOctree(std::span<value_type>(list.begin(), list.end())) {}
+		VolumeOctree(std::span<value_type> list) BASE() {
+			if (list.empty()) {return;}
+
+			box_type box = list[0].bbox();
+			for (size_t i=1; i<list.size(); ++i) {
+				box.expand(list[i].bbox());
+			}
+
+			this->construct_root(box);
+			this->push_back_range(list);
+		}
+
 
 		////////////////////////////////////////////////////////////////
 		// Implementation of CRTP interface
