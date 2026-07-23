@@ -8,8 +8,10 @@
 #include "octree/base_node.hpp"
 #include "octree/base_octree.hpp"
 
+#include "shapes/sphere.hpp"
+
 #include <memory_resource>
-#include <concept>
+#include <concepts>
 
 namespace gutil {
 	
@@ -17,26 +19,27 @@ namespace gutil {
 
 	template<typename VolumeType>
 	struct VolumeOctreeOpts {
-		using node_allocator_type = std::pmr::polymorphic_allocator<std::byte>;
-		using node_resource_type = std::pmr::synchronized_pool_resource;
-		// using node_allocator_type = void;
-		// using node_resource_type = void;
-
-		using index_allocator_type = std::pmr::polymorphic_allocator<std::byte>;
-		using index_resource_type = std::pmr::synchronized_pool_resource;
-		// using index_allocator_type = void;
-		// using index_resource_type = void;
-
 		using point_type  = typename VolumeType::point_type;
 		using scalar_type = typename point_type::scalar_type;
 		using value_type  = VolumeType;
 		using node_value_type = size_t;
-		using box_type    = Box<DIMENSION,scalar_type>;
-		using node_type   = Node<node_value_type, DIMENSION, scalar_type, 64, node_allocator_type, index_allocator_type>;
 
 		static constexpr bool HAS_DISTANCE_SQ = true;
 		static constexpr bool VOLUME_DATA = true;
 		static constexpr int DIMENSION = point_type::DIMENSION;
+
+		// using node_allocator_type = std::pmr::polymorphic_allocator<std::byte>;
+		// using node_resource_type = std::pmr::synchronized_pool_resource;
+		using node_allocator_type = void;
+		using node_resource_type = void;
+
+		// using index_allocator_type = std::pmr::polymorphic_allocator<std::byte>;
+		// using index_resource_type = std::pmr::synchronized_pool_resource;
+		using index_allocator_type = void;
+		using index_resource_type = void;
+
+		using box_type    = Box<DIMENSION,scalar_type>;
+		using node_type   = Node<node_value_type, DIMENSION, scalar_type, 64, node_allocator_type, index_allocator_type>;
 	};
 
 
@@ -48,7 +51,7 @@ namespace gutil {
 		// Constants and aliases
 		////////////////////////////////////////////////////////////////
 		using OPTS = VolumeOctreeOpts<VolumeType>;
-		using BASE = BaseOctree<VolumeOctree<VolumeType>, PointOctreeOpts<VolumeType>>;
+		using BASE = BaseOctree<VolumeOctree<VolumeType>, VolumeOctreeOpts<VolumeType>>;
 		
 		using value_type  = typename OPTS::value_type;
 		using box_type    = typename OPTS::box_type;
@@ -60,33 +63,33 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		using BASE::BASE;
 
-		PointOctree(std::span<value_type> points) : BASE(points) {
-			BASE::push_back_range(points);
-		}
-
 
 		////////////////////////////////////////////////////////////////
 		// Implementation of CRTP interface
 		////////////////////////////////////////////////////////////////
-		bool intersects_impl(const box_type& box, const value_type& value) const requires(std::same_as<value_type,box_type>) {
+		bool intersects_impl(const box_type& box, const value_type& value) const noexcept requires(std::same_as<value_type,box_type>) {
 			return box.intersects(value);
 		}
 
-		bool intersects_impl(const box_type& box, const value_type& value) const requires(!std::same_as<value_type,box_type>) {
-			if constexpr ( requires { value.intersects(box); }) {
-				return value.intersects(box);
-			}
-			else {
-				return gutil::collides_GJK<box_type,value_type,OPTS::DIMENSION, typename OPTS::scalar_type>(box,value);
-			}
+		bool intersects_impl(const box_type& box, const value_type& value) const noexcept requires(!std::same_as<value_type,box_type>) {
+			return gutil::collides(box,value);
 		}
 
-		scalar_type distance_sq_impl(const point_type& point, const value_type& value) const {
+		bool intersects_impl(const value_type& A, const value_type& B) const noexcept requires(!std::same_as<value_type,box_type>) {
+			return gutil::collides(A,B);
+		}
+
+		scalar_type distance_sq_impl(const value_type& value, const point_type& point) const {
 			return value.distance_sq(point);
 		}
 
 		point_type get_point_impl(const value_type& value) const {
 			return value.center;
+		}
+
+		scalar_type signed_distance(const point_type& point) const {
+			size_t idx = this->find_nearest(point);
+			return this->data_[idx].signed_distance(point);
 		}
 	};
 }

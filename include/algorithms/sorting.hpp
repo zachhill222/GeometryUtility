@@ -30,7 +30,7 @@ namespace gutil
 	public:
 		BinSort() {}
 		BinSort(std::span<T> data, int N) : n_bins{N}, data(data), bins(N+1) {
-			assert(N>0);
+			GUTIL_ASSERT(N>0);
 			n_bits = std::bit_width(static_cast<uint>(N-1));
 		}
 
@@ -47,26 +47,26 @@ namespace gutil
 
 		/// Once sorted, get a subspan into the requested bin
 		[[nodiscard]] std::span<T> get_bin(int i) const noexcept {
-			assert(0<=i && i<n_bins);
-			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
+			GUTIL_ASSERT(0<=i && i<n_bins);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins)+1 == bins.size() );
 			return std::span<T>{bins[i], bins[i+1]};
 		}
 
 		[[nodiscard]] size_t bin_size(int i) const noexcept {
-			assert(0<=i && i<n_bins);
-			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
+			GUTIL_ASSERT(0<=i && i<n_bins);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[i],bins[i+1]));
 		}
 
 		[[nodiscard]] size_t bin_start(int i) const noexcept {
-			assert(0<=i && i<n_bins);
-			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
+			GUTIL_ASSERT(0<=i && i<n_bins);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[0], bins[i]));
 		}
 
 		[[nodiscard]] size_t bin_end(int i) const noexcept {
-			assert(0<=i && i<n_bins);
-			assert( static_cast<size_t>(n_bins)+1 == bins.size() );
+			GUTIL_ASSERT(0<=i && i<n_bins);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[0], bins[i+1]));
 		}
 	};
@@ -75,7 +75,7 @@ namespace gutil
 	template<typename Predicate>
 	void BinSort<T>::recursive_partition_bit(std::span<T> data, int bit, int bin, Predicate&& int_pred) noexcept {
 		if (bit<0) {
-			assert(0<=bin && bin<n_bins);
+			GUTIL_ASSERT(0<=bin && bin<=n_bins);
 			bins[bin] = data.begin();
 			bins[bin+1] = data.end();
 			return;
@@ -90,7 +90,12 @@ namespace gutil
 		const int left_bin = bin;
 		const int right_bin = bin | (int{1} << bit);
 
-		recursive_partition_bit(std::span<T>{data.begin(), mid}, bit-1, left_bin, int_pred);
-		recursive_partition_bit(std::span<T>{mid, data.end()}, bit-1, right_bin, std::forward<Predicate>(int_pred));
+		if (left_bin <= n_bins) {
+			recursive_partition_bit(std::span<T>{data.begin(), mid}, bit-1, left_bin, int_pred);
+		}
+		
+		if (right_bin <= n_bins) {
+			recursive_partition_bit(std::span<T>{mid, data.end()}, bit-1, right_bin, std::forward<Predicate>(int_pred));
+		}
 	}
 }

@@ -214,11 +214,6 @@ namespace gutil {
 	///////////////////// BOX ONLY MATH/GEOMETRY OPERATIONS /////////////////////
 	/////////////////////////////////////////////////////////////////////////////
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] inline constexpr bool collide(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
-		return A.collides_with(B);
-	}
-
-	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
 		// record the gap (if any) along each axis and then sum the squares.
 		//		[   A - axis[i]    ] <---- gap = B.low - A.high ----> [    B - axis[i]   ]
@@ -275,6 +270,11 @@ namespace gutil {
 	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T distance_squared(const Box<DIM,T>& A, const Point<DIM,T>& B) noexcept {
 		return gutil::distance_squared(gutil::clamp(B, A), B);
+	}
+	
+	template<int DIM, IsScalar T>
+	[[nodiscard]] inline constexpr bool collides( const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+		return A.collides_with(B);
 	}
 }
 

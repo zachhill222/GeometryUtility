@@ -8,7 +8,6 @@
 #include <span>
 #include <concepts>
 #include <iostream>
-#include <cassert>
 #include <functional>
 
 namespace gutil
@@ -55,8 +54,8 @@ namespace gutil
 		////////////////////////////////////////////////////////////////
 		// Element access
 		////////////////////////////////////////////////////////////////
-		[[nodiscard]] constexpr T operator[](const int idx) const noexcept {assert(0<=idx and idx<DIM); return data[idx];}
-		[[nodiscard]] constexpr T& operator[](const int idx) noexcept {assert(0<=idx and idx<DIM); return data[idx];}
+		[[nodiscard]] constexpr T operator[](const int idx) const noexcept {GUTIL_ASSERT(0<=idx and idx<DIM); return data[idx];}
+		[[nodiscard]] constexpr T& operator[](const int idx) noexcept {GUTIL_ASSERT(0<=idx and idx<DIM); return data[idx];}
 
 		[[nodiscard]] constexpr T x() const noexcept requires (DIM>0) {return data[0];}
 		[[nodiscard]] constexpr T y() const noexcept requires (DIM>1) {return data[1];}
@@ -138,7 +137,7 @@ namespace gutil
 
 		template<typename U> requires std::is_nothrow_convertible<U,T>::value
 		constexpr Point& operator/=(const U scalar) noexcept {
-			assert(scalar!=U{0} && "Point::operator/=: divide by zero");
+			GUTIL_ASSERT(scalar!=U{0} && "Point::operator/=: divide by zero");
 			if constexpr (std::numeric_limits<T>::is_integer) {
 				for (int i=0; i<DIM; i++) {data[i] /= scalar;}
 			}
@@ -160,7 +159,7 @@ namespace gutil
 
 		Point& normalize() {
 			const T nn = gutil::norm2<DIM,T>(data);
-			assert(nn>T{0} && "normalized: input was the zero vector");
+			GUTIL_ASSERT(nn>T{0} && "normalized: input was the zero vector");
 			return operator/=(nn);
 		}
 
@@ -413,7 +412,7 @@ namespace gutil
 
 	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& p, const Point<DIM,T>& lo, const Point<DIM,T>& hi) noexcept {
-		assert(lo<=hi);
+		GUTIL_ASSERT(lo<=hi);
 		Point<DIM,T> result;
 		for (int i=0; i<DIM; i++) {
 			result.data[i] = gutil::clamp(p.data[i], lo.data[i], hi.data[i]);
@@ -423,7 +422,7 @@ namespace gutil
 
 	template<int DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr Point<DIM,T> clamp(const Point<DIM,T>& vec, const T lo, const T hi) noexcept {
-		assert(lo<=hi);
+		GUTIL_ASSERT(lo<=hi);
 		Point<DIM,T> result;
 		for (int i=0; i<DIM; i++) {
 			result.data[i] = gutil::clamp(vec.data[i], lo, hi);
@@ -446,6 +445,10 @@ namespace gutil
 		return gutil::squared_norm<DIM,T>(vec.data);
 	}
 
+	template<int DIM, IsScalar T> requires (DIM>0)
+	[[nodiscard]] inline constexpr T norm2(const Point<DIM,T>& vec) noexcept {
+		return gutil::norm2<DIM,T>(vec.data);
+	}
 
 	/////////////////////////////////////////////////////////////////////////////
 	////////////////////// CAREFUL FLOATING POINT METHODS ///////////////////////

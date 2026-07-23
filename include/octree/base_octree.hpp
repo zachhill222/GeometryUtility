@@ -94,7 +94,7 @@ namespace gutil {
 		}
 
 		[[nodiscard]] node_alloc_type make_node_allocator() noexcept {
-			if constexpr (std::same_as<DummyResource,node_alloc_type>) {
+			if constexpr (std::same_as<DummyResource,node_resource_type>) {
 				return node_alloc_type{};
 			}
 			else {
@@ -103,7 +103,7 @@ namespace gutil {
 		}
 
 		[[nodiscard]] index_alloc_type make_index_allocator() noexcept {
-			if constexpr (std::same_as<DummyResource,index_alloc_type>) {
+			if constexpr (std::same_as<DummyResource,index_resource_type>) {
 				return index_alloc_type{};
 			}
 			else {
@@ -115,7 +115,7 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		/// Helper functions from the Derived class
 		////////////////////////////////////////////////////////////////
-		[[nodiscard]] scalar_type distance_sq(const point_type& pt, const value_type& value) const noexcept requires(Opts::HAS_DISTANCE_SQ) {
+		[[nodiscard]] scalar_type distance_sq(const value_type& value, const point_type& pt) const noexcept requires(Opts::HAS_DISTANCE_SQ) {
 			return static_cast<const Derived*>(this) -> distance_sq_impl(value, pt);
 		}
 
@@ -216,7 +216,11 @@ namespace gutil {
 		template<typename... Args>
 		size_t emplace_back(Args&&... args) noexcept;
 
-		size_t push_back(value_type value) noexcept {return 0;};
+		size_t push_back(value_type value) noexcept {
+			size_t idx = data_.size();
+			push_back_range(std::span<value_type>{&value, 1});
+			return idx;
+		};
 		
 		void push_back_range(std::vector<value_type>&& values) noexcept {
 			push_back_range(std::span<value_type>{values.begin(), values.end()});
@@ -245,7 +249,7 @@ namespace gutil {
 			if (data_.empty()) { return size_t(-1); }
 
 			size_t idx=0;
-			scalar_type d2 = distance_sq(point, data_[idx]);
+			scalar_type d2 = distance_sq(data_[idx], point);
 			recursive_find_nearest(root_, point, d2, idx);
 			return idx;
 		}
@@ -254,10 +258,11 @@ namespace gutil {
 			if (data_.empty()) { return size_t(-1); }
 
 			const node_type* node = find_node(value);
-			return node->data.find( [&](size_t i) { return this->intersects(value, data_[i]); });
+			const size_t* idx = node->data.find( [&](size_t i) { return this->intersects(value, data_[i]); });
+			return idx ? *idx : size_t(-1);
 		}
 
-		void sort_and_deduplicate(std::span<value_type> values) noexcept;
+
 
 	private:
 		////////////////////////////////////////////////////////////////
@@ -342,7 +347,7 @@ namespace gutil {
 			BinSort<value_type> sorted;
 			if constexpr (VOLUME_DATA) {
 				sorted = node_type::PartitionToOrthantAndNode(values, node->bbox, 
-					[this](const value_type& v, const box_type& b) { return this->intersects(v,b); });
+					[this](const box_type& b, const value_type& v) { return this->intersects(b,v); });
 
 				//insert into current node
 				GUTIL_ASSERT( node->data.remaining() >= sorted.bin_size(N_CHILDREN) );
@@ -393,7 +398,7 @@ namespace gutil {
 
 		if ( node->is_leaf() ) {
 			for (const size_t i : node->data) {
-				const scalar_type d2 = distance_sq(point, data_[i]);
+				const scalar_type d2 = distance_sq(data_[i], point);
 				if ( d2 < dist_sq ) {
 					dist_sq = d2;
 					idx = i;
@@ -404,7 +409,7 @@ namespace gutil {
 			if constexpr (VOLUME_DATA) {
 				if ( !node->data.empty() ) {
 					for (const size_t i : node->data) {
-						const scalar_type d2 = distance_sq(point, data_[i]);
+						const scalar_type d2 = distance_sq(data_[i], point);
 						if (d2 < dist_sq) {
 							dist_sq = d2;
 							idx = i;

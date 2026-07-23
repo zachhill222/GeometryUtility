@@ -1,15 +1,58 @@
 #include "octree/base_node.hpp"
 #include "octree/base_octree.hpp"
 #include "octree/point_octree.hpp"
+#include "octree/volume_octree.hpp"
 
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
 
+#include "shapes/shapes.hpp"
+
+#include "utility/rng.hpp"
+
+using Sphere     = gutil::Sphere<3,float>;
 using point_type = gutil::Point<3,float>;
-using box_type = gutil::Box<3,float>;
+using box_type   = gutil::Box<3,float>;
+
 
 int main(int argc, char* argv[]) {
-	box_type box( point_type{0,0,0}, point_type{1,1,1} );
-	gutil::PointOctree<gutil::Point<3,float>> tree(box);
+	//set up rng
+	auto random_point = gutil::UniformRandomPoint<point_type,false>();
+	random_point.set_parameters(float{-10}, float{10});
+
+	auto random_scalar = gutil::UniformRandomPoint<point_type,false>();
+	random_scalar.set_parameters(0.1f, 1.0f);
+
+	//set up octree and bounding box
+	box_type box( point_type::Filled(-11), point_type::Filled(11) );
+	gutil::VolumeOctree<Sphere> tree(box);
+
+	//add spheres to the octree so long as they don't intersect
+	int N = (argc>1) ? atoi(argv[1]) : 100;
+
+	for (int i=0; i<N; ++i) {
+		Sphere s(random_point(), random_scalar.scalar());
+		size_t idx = tree.collides_with(s);
+		if (idx < tree.size()) {
+			gutil::Logger::log("COLLISION: ", s, " collides with ", tree[idx],
+					" (idx= ", idx, " center2center= ", gutil::distance(s.center,tree[idx].center),")");
+		}
+		else {
+			tree.push_back(s);
+			gutil::Logger::log("INSERTED[", tree.size(), "] ", s);
+		}
+	}
+
+	for (int i=0; i<N; ++i) {
+		point_type pt = random_point();
+		size_t idx = tree.find_nearest(pt);
+
+		for (const Sphere& s : tree) {
+			if (s.distance(pt) < tree[idx].distance(pt)) {
+				gutil::Logger::error("ERROR: did not find closest sphere");
+			}
+		}
+	}
+
 	return 0;
 }

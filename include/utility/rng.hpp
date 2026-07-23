@@ -14,8 +14,7 @@ namespace gutil
 	/// points for standard c++ scalar types.
 	///////////////////////////////////////////////
 	template<IsPoint PointType, bool Deterministic, typename DistributionType>
-	struct RandomPoint
-	{
+	struct RandomPoint {
 	private:
 		using scalar_type = typename PointType::scalar_type;
 
@@ -56,6 +55,11 @@ namespace gutil
 				result.data[i] = dist(gen);
 			}
 			return result;
+		}
+
+		//get a random scalar
+		auto scalar() {
+			return dist(gen);
 		}
 	};
 

@@ -3,8 +3,6 @@
 #include "geometry/point.hpp"
 #include "geometry/box.hpp"
 
-// #include "memory/base_allocator.hpp"
-// #include "memory/tagged_pointer.hpp"
 #include "memory/containers.hpp"
 #include "algorithms/sorting.hpp"
 
@@ -118,8 +116,9 @@ namespace gutil {
 		Node(Node* parent, int c) : 
 			key{parent->key.child(c)}, 
 			bbox{parent->bbox.center(), parent->bbox.vertex(c)},
-			alloc_{parent->alloc_},
-			data{parent->data.alloc_} {}
+			data{parent->data.alloc_},
+			alloc_{parent->alloc_}
+			{}
 
 		/// Destroy and deallocate child nodes
 		void destroy_children() noexcept {
@@ -159,14 +158,14 @@ namespace gutil {
 
 		//prepare child nodes without moving data
 		void split() noexcept {
-			assert(is_leaf());
+			GUTIL_ASSERT(is_leaf());
 			construct_children();
 		}
 
 		//push down data that belongs to child nodes
 		template<typename IntersectsQuery>
 		void push_down_volume(IntersectsQuery&& intersect) noexcept {
-			assert(!is_leaf());
+			GUTIL_ASSERT(!is_leaf());
 
 			auto sorted = Node::PartitionToOrthantAndNode(data.as_span(), bbox, std::forward<IntersectsQuery>(intersect));
 			for (int c=0; c<N_CHILDREN; ++c) {
@@ -185,7 +184,7 @@ namespace gutil {
 
 		template<typename PointQuery>
 		void push_down_point(PointQuery&& point) noexcept {
-			assert(!is_leaf());
+			GUTIL_ASSERT(!is_leaf());
 
 			auto sorted = Node::PartitionToOrthant(data.as_span(), bbox.center(), std::forward<PointQuery>(point));
 			for (int c=0; c<N_CHILDREN; ++c) {
@@ -216,8 +215,7 @@ namespace gutil {
 		/// Given a node and data, determine which child it belongs to using either point or volume criteria
 		template<typename VT, typename IntersectsQuery>
 		[[nodiscard]] static constexpr int GetChildNumberVolume(const VT& value, const Node* node, IntersectsQuery&& query) noexcept {
-			assert(node && node->is_leaf());
-			assert(query(node->bbox, value));
+			GUTIL_ASSERT(query(node->bbox, value));
 
 			int n_children = 0;
 			int child=-1;
@@ -228,8 +226,8 @@ namespace gutil {
 				}
 				if (n_children > 1) { return N_CHILDREN; }	//intersects to multiple children, volume data belongs to original node
 			}
-			assert( n_children==1 );
-			assert( child!=-1 );
+			GUTIL_ASSERT( n_children==1 );
+			GUTIL_ASSERT( child!=-1 );
 			return child;
 		}
 
@@ -261,11 +259,11 @@ namespace gutil {
 						child=c;
 						++count;
 					}
-					if (count > 1) {return N_ORTHANTS;}
+					if (count > 1) {return N_CHILDREN;}
 				}
 
-				assert(count==1);
-				assert(child!=-1);
+				GUTIL_ASSERT(count==1);
+				GUTIL_ASSERT(child!=-1);
 				return child;
 			};
 
@@ -283,14 +281,14 @@ namespace gutil {
 
 		/// Get the bounding box of a child node
 		[[nodiscard]] static constexpr box_type ChildBox(const box_type& parent_box, int orthant) noexcept {
-			assert(0<=orthant && orthant<N_ORTHANTS);
+			GUTIL_ASSERT(0<=orthant && orthant<N_ORTHANTS);
 			return {parent_box.center(), parent_box.vertex(orthant)};
 		}
 
 		/// Get the bounding box of the parent node
 		/// Note the child number is the child number of the node relative to the parent
 		[[nodiscard]] static constexpr box_type ParentBox(const box_type& child_box, int child_number) noexcept {
-			assert(0<=child_number && child_number<N_ORTHANTS);
+			GUTIL_ASSERT(0<=child_number && child_number<N_ORTHANTS);
 			point_type vertex = child_box.vertex(child_number);			//vertex of the parent box, vertex opposite of this is the
 
 			const int center_index = (~child_number) & ORTHANT_MASK;	//flip each axis from high->low and vice versa
@@ -314,7 +312,7 @@ namespace gutil {
 		/// Given a key and the root node, traverse to the requested node
 		/// If the requested node is unreachable, return the last node on its path
 		[[nodiscard]] static constexpr Node* TraverseToNode(Node* root, uint64_t morton_path) noexcept {
-			assert(root);
+			GUTIL_ASSERT(root);
 			GUTIL_DEBUG( key_type key = root->key; )
 
 			//the morton path has a leading 1 can be interpreted as a base-2^DIM number
@@ -328,7 +326,7 @@ namespace gutil {
 				root = root->children + c;
 
 				GUTIL_DEBUG( key = key.child(c); )
-				GUTIL_DEBUG( assert(key== root->key); )
+				GUTIL_DEBUG( GUTIL_ASSERT(key== root->key); )
 			}
 
 			return root;

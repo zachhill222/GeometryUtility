@@ -49,11 +49,11 @@ namespace gutil {
 			return data[i%size];
 		}
 
-		template<typename... Args> requires ( (sizeof...(Args) <= DIMENSION+1) && (std::same_as<point_type,Args> &&...))
+		template<typename... Args> requires ( (sizeof...(Args) <= DIMENSION+1) && (std::same_as<point_type,std::decay_t<Args>> &&...))
 		void set(Args&&... args) noexcept {
 			size = static_cast<int>(sizeof...(Args));
 			int i=0;
-			(data[i++] = std::forward<Args>(args), ...); //increment i during the fold expression
+			( (data[i++] = std::forward<Args>(args)), ...); //increment i during the fold expression
 		}
 
 		constexpr void push_back(point_type point) noexcept {
@@ -71,14 +71,15 @@ namespace gutil {
 	/// Simplex in (usuall in 2D or 3D)
 	/////////////////////////////////////////////////////////////////
 	template<IsPoint PointType>
-	struct Simplex : PointContainer<PointType, PointType::DIMENSION> {
+	struct Simplex : PointContainer<PointType, PointType::DIMENSION+1> {
 		/////////////////////////////////////////////////////////////////
 		/// Aliases
 		////////////////////////////////////////////////////////////////
-		using BASE = PointContainer<PointType,PointType::DIMENSION>;
+		using BASE = PointContainer<PointType,PointType::DIMENSION+1>;
 		using BASE::DIMENSION;
 		using BASE::data;
 		using BASE::size;
+		using point_type = typename BASE::point_type;
 		using scalar_type = typename BASE::scalar_type;
 
 
@@ -128,7 +129,7 @@ namespace gutil {
 		/////////////////////////////////////////////////////////////
 		/// Aliases
 		/////////////////////////////////////////////////////////////
-		using BASE = PointContainer<PointType<3,T>,3>;
+		using BASE = PointContainer<Point<3,T>,3>;
 		using point_type = Point<3,T>;
 		using scalar_type = T;
 		using BASE::DIMENSION;

@@ -227,103 +227,103 @@ namespace gutil {
 	///////////////////////////////////////////////////////////
 	/// Component-wise arithmetic
 	///////////////////////////////////////////////////////////
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_sum(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] += right[i];
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_subtract(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] -= right[i];
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_product(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] *= right[i];
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_divide(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			assert(right[i] != T{0});
 			left[i] /= right[i];
 		}
 	}
 
-	template<int DIM, IsReal T> requires (DIM>0)
+	template<size_t DIM, IsReal T> requires (DIM>0)
 	inline constexpr void in_place_divide(std::span<T,DIM> left, const T right) noexcept {
 		assert(right != T{0});
 		const T r_inv = T{1}/right;
 		gutil::in_place_product(left, r_inv);
 	}
 
-	template<int DIM, IsInteger T> requires (DIM>0)
+	template<size_t DIM, IsInteger T> requires (DIM>0)
 	inline constexpr void in_place_divide(std::span<T,DIM> left, const T right) noexcept {
 		assert(right != T{0});
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] /= right;
 		}
 	}
 
-	template<int DIM, IsInteger T> requires (DIM>0)
+	template<size_t DIM, IsInteger T> requires (DIM>0)
 	inline constexpr void in_place_modulo(std::span<T,DIM> left, std::span<const T,DIM> right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] %= right[i];
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_negate(std::span<T,DIM> data) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			data[i] = -data[i];
 		}
 	}
 
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_sum(std::span<T,DIM> left, const T right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] += right;
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_subtract(std::span<T,DIM> left, const T right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] -= right;
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_product(std::span<T,DIM> left, const T right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] *= right;
 		}
 	}
 
-	template<int DIM, IsInteger T> requires (DIM>0)
+	template<size_t DIM, IsInteger T> requires (DIM>0)
 	inline constexpr void in_place_modulo(std::span<T,DIM> left, const T right) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			left[i] %= right;
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_clamp(std::span<T,DIM> data, std::span<const T,DIM> lo, std::span<const T,DIM> hi) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			data[i] = gutil::clamp(data[i], lo[i], hi[i]);
 		}
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	inline constexpr void in_place_clamp(std::span<T,DIM> data, T lo, T hi) noexcept {
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			data[i] = gutil::clamp(data[i], lo, hi);
 		}
 	}
@@ -332,55 +332,55 @@ namespace gutil {
 	///////////////////////////////////////////////////////////
 	/// Comparisons
 	///////////////////////////////////////////////////////////
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool cone_compare_less_than(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		// return true if left[i] < right[i] for all i
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			if (left[i] >= right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool cone_compare_less_than_equal(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		// return true if left[i] <= right[i] for all i
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			if (left[i] > right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool cone_compare_greater_than(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		// return true if left[i] > right[i] for all i
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			if (left[i] <= right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool cone_compare_greater_than_equal(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		// return true if left[i] >= right[i] for all i
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			if (left[i] < right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool elements_equal(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		// return true if left[i] == right[i] for all i
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			if (left[i] != right[i]) {return false;}
 		}
 		return true;
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr bool lexicographic_less_than(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		// return true if there exists an I such that left[I] < right[I] and left[i] == right[i] for all i<I
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			if (left[i] < right[i]) {return true;}
 			if (right[i] < left[i]) {return false;}
 		}
@@ -391,23 +391,23 @@ namespace gutil {
 	///////////////////////////////////////////////////////////
 	/// Reductions and norms
 	///////////////////////////////////////////////////////////
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T sum_reduce(std::span<const T,DIM> data) noexcept {
 		T result{data[0]};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result += data[i];
 		}
 		return result;
 	}
 
 	GUTIL_NO_ASSOC_MATH_START
-	template<int DIM, IsScalar T, IsScalar U=T> requires (DIM>0) && std::is_nothrow_convertible_v<T,U>
+	template<size_t DIM, IsScalar T, IsScalar U=T> requires (DIM>0) && std::is_nothrow_convertible_v<T,U>
 	[[nodiscard]] inline constexpr T kahan_sum_reduce(std::span<const T,DIM> data) noexcept {
 		U aa{0};	//accumulator
 		U cc{0};	//compensation
 		U yy, tt;	//intermediates
 
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			yy = static_cast<U>(data[i]) - cc;
 			tt = aa + yy;
 			cc = (tt - aa) - yy;
@@ -417,95 +417,95 @@ namespace gutil {
 	}
 	GUTIL_NO_ASSOC_MATH_END
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T product_reduce(std::span<const T,DIM> data) noexcept {
 		T result{data[0]};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result *= data[i];
 		}
 		return result;
 	}
 
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T max_reduce(std::span<const T,DIM> data) noexcept {
 		T result{data[0]};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result = gutil::max(result, data[i]);
 		}
 		return result;
 	}
 
 	/// get the minimum value
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T min_reduce(std::span<const T,DIM> data) noexcept {
 		T result{data[0]};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result = gutil::min(result, data[i]);
 		}
 		return result;
 	}
 
 	/// get the minimum absolute value
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T min_abs_reduce(std::span<const T,DIM> data) noexcept {
 		T result{gutil::abs(data[0])};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result = gutil::min(result, gutil::abs(data[i]));
 		}
 		return result;
 	}
 
 	/// get the dot product
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T dot_product_reduce(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		T result{left[0]*right[0]};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result = gutil::fma(left[i], right[i], result);
 		}
 		return result;
 	}
 
 	/// infinity norm
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T norminfty(std::span<const T,DIM> data) noexcept {
 		T result{gutil::abs(data[0])};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result = gutil::max(result, gutil::abs(data[i]));
 		}
 		return result;
 	}
 
 	/// 1-norm
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T norm1(std::span<const T,DIM> data) noexcept {
 		T result{gutil::abs(data[0])};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result += gutil::abs(data[i]);
 		}
 		return result;
 	}
 
 	/// squared 2-norm
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T squared_norm(std::span<const T,DIM> data) noexcept {
 		T result{data[0]*data[0]};
-		for (int i=1; i<DIM; ++i) {
+		for (size_t i=1; i<DIM; ++i) {
 			result = gutil::fma(data[i], data[i], result);
 		}
 		return result;
 	}
 
 	/// 2-norm
-	template<int DIM, IsReal T> requires (DIM>0)
+	template<size_t DIM, IsReal T> requires (DIM>0)
 	[[nodiscard]] inline T norm2(std::span<const T,DIM> data) noexcept {
 		return gutil::sqrt(gutil::squared_norm(data));
 	}
 
 	/// sum of squared differences/errors
-	template<int DIM, IsScalar T> requires (DIM>0)
+	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T sse_reduce(std::span<const T,DIM> left, std::span<const T,DIM> right) noexcept {
 		T result{0};
-		for (int i=0; i<DIM; ++i) {
+		for (size_t i=0; i<DIM; ++i) {
 			const T dd = left[i] - right[i];
 			result = gutil::fma(dd, dd, result);
 		}

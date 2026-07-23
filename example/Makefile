@@ -1,7 +1,8 @@
+#header files
 INCLUDE = -I../include
 
 #default build (debug)
-CXX        = g++ -std=c++23
+CXX     = g++ -std=c++23
 
 #explicit defines
 DEFINES = 
@@ -46,7 +47,10 @@ point_parallel: FORCE
 point_octree: FORCE
 	${COMPILE} point_octree.cpp -o point_octree
 
+octree_verify: FORCE
+	$(COMPILE) octree_verify.cpp -o octree_verify
+
 FORCE:
 
 clean:
-	rm -f point point_parallel point_octree *.out
+	rm -f point point_parallel point_octree octree_verify *.out
