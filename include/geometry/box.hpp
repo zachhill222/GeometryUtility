@@ -231,7 +231,7 @@ namespace gutil {
 	/////////////////////////////////////////////////////////////////////////////
 	/// Return 'union' of two boxes (minimal box that contains both inputs)
 	template<int DIM, IsScalar T> requires (DIM>0)
-	[[nodiscard]] inline constexpr Box<DIM,T> merge(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
+	[[nodiscard]] inline constexpr Box<DIM,T> expand(const Box<DIM,T>& A, const Box<DIM,T>& B) noexcept {
 		return {gutil::elmin(A.low, B.low), gutil::elmax(A.high, B.high)};
 	}
 
