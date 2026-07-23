@@ -20,8 +20,8 @@ namespace gutil {
 		std::string line;
 
 		if( !file.is_open() ) {
-			Logger:error("Could not open ", filename);
-			return;
+			Logger::error("Could not open ", filename);
+			return {};
 		}
 
 		//read file

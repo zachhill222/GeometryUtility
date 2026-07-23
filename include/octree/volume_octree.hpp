@@ -63,8 +63,8 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		using BASE::BASE;
 
-		VolumeOctree(std::vector<value_type>&& list) VolumeOctree(std::span<value_type>(list.begin(), list.end())) {}
-		VolumeOctree(std::span<value_type> list) BASE() {
+		VolumeOctree(std::vector<value_type>&& list) : VolumeOctree(std::span<value_type>(list.begin(), list.end())) {}
+		VolumeOctree(std::span<value_type> list) : BASE() {
 			if (list.empty()) {return;}
 
 			box_type box = list[0].bbox();
