@@ -3,6 +3,8 @@
 #include "utility/macros.hpp"
 #include "utility/concepts.hpp"
 
+#include "geometry/point.hpp"
+
 #include <random>
 #include <type_traits>
 

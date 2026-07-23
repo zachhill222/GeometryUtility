@@ -168,8 +168,9 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		/// Public interface to access the data
 		////////////////////////////////////////////////////////////////
-		[[nodiscard]] std::span<value_type> data() noexcept { return {data_.begin(), data_.end()}; }
-		[[nodiscard]] std::span<const value_type> data() const noexcept { return {data_.cbegin(), data_.cend()}; }
+		[[nodiscard]] std::span<value_type> as_span() noexcept { return {data_.begin(), data_.end()}; }
+		[[nodiscard]] std::span<const value_type> as_span() const noexcept { return {data_.cbegin(), data_.cend()}; }
+		[[nodiscard]] std::span<const value_type> as_cspan() const noexcept { return {data_.cbegin(), data_.cend()}; }
 
 		[[nodiscard]] auto begin() {return data_.begin();}
 		[[nodiscard]] auto begin() const {return data_.cbegin();}

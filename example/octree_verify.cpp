@@ -1,14 +1,4 @@
-#include "octree/base_node.hpp"
-#include "octree/base_octree.hpp"
-#include "octree/point_octree.hpp"
-#include "octree/volume_octree.hpp"
-
-#include "geometry/point.hpp"
-#include "geometry/box.hpp"
-
-#include "shapes/shapes.hpp"
-
-#include "utility/rng.hpp"
+#include "gutil.hpp"
 
 using Sphere     = gutil::Sphere<3,float>;
 using point_type = gutil::Point<3,float>;
@@ -53,6 +43,10 @@ int main(int argc, char* argv[]) {
 			}
 		}
 	}
+
+
+	//write spheres to a file
+	gutil::write_spheres_to_file("spheres.txt", tree.as_cspan());
 
 	return 0;
 }
