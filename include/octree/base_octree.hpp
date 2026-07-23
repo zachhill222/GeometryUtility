@@ -88,9 +88,9 @@ namespace gutil {
 			}
 		}
 
-		node_type* construct_root(const box_type& box) {
-			assert(root_==nullptr);
-			return node_type::ConstructRoot(box, node_alloc_, index_alloc_);
+		void construct_root(const box_type& box) noexcept {
+			if(root_!=nullptr) { destroy_root(); }
+			root_ =  node_type::ConstructRoot(box, node_alloc_, index_alloc_);
 		}
 
 		[[nodiscard]] node_alloc_type make_node_allocator() noexcept {
@@ -161,7 +161,7 @@ namespace gutil {
 			node_alloc_(make_node_allocator()),
 			index_resource_{},
 			index_alloc_(make_index_allocator()) {
-				root_ = construct_root(box_type{std::forward<Args>(args)...});
+				construct_root(box_type{std::forward<Args>(args)...});
 			}
 
 
