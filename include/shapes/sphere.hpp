@@ -23,8 +23,8 @@ namespace gutil
 		}
 
 		[[nodiscard]] constexpr box_type bbox_impl() const noexcept {
-			return box_type{ point_type{center[0]-radius, center[1]-radius, center[2]-radius},
-							 point_type{center[0]+radius, center[1]+radius, center[2]+radius} };
+			return box_type{ point_type{center - point_type::Filled(radius)},
+							 point_type{center + point_type::Filled(radius)} };
 		}
 
 		[[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {

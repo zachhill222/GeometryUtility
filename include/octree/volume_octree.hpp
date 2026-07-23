@@ -69,7 +69,7 @@ namespace gutil {
 
 			box_type box = list[0].bbox();
 			for (size_t i=1; i<list.size(); ++i) {
-				box.expand(list[i].bbox());
+				box = gutil::expand(box, list[i].bbox());
 			}
 
 			this->construct_root(box);

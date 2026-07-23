@@ -34,6 +34,10 @@ namespace gutil {
 			return static_cast<const Derived*>(this) -> distance_impl(point);
 		}
 
+		[[nodiscard]] constexpr T signed_distance(const point_type& point) const noexcept {
+			return static_cast<const Derived*>(this) -> signed_distance_impl(point);
+		}
+
 		constexpr void translate_to(const point_type& point) noexcept {
 			center = point;
 		}
@@ -147,10 +151,6 @@ namespace gutil {
 
 		[[nodiscard]] constexpr T distance_impl(const point_type& point) const noexcept {
 			return static_cast<const Derived*>(this) -> distance_impl(point);
-		}
-
-		[[nodiscard]] constexpr T signed_distance(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> signed_distance_impl(point);
 		}
 		
 		[[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {
