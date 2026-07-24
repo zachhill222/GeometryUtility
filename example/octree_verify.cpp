@@ -8,19 +8,17 @@ using box_type   = gutil::Box<3,float>;
 int main(int argc, char* argv[]) {
 	//set up rng
 	auto random_point = gutil::UniformRandomPoint<point_type,false>();
-	random_point.set_parameters(float{-10}, float{10});
+	random_point.set_parameters(float{0}, float{1});
 
 	auto random_scalar = gutil::UniformRandomPoint<point_type,false>();
-	random_scalar.set_parameters(0.1f, 1.0f);
+	random_scalar.set_parameters(0.05f, 0.5f);
 
 	//set up octree and bounding box
-	box_type box( point_type::Filled(-11), point_type::Filled(11) );
+	box_type box( point_type::Filled(0), point_type::Filled(1) );
 	gutil::VolumeOctree<Sphere> tree(box);
 
-	//add spheres to the octree so long as they don't intersect
-	int N = (argc>1) ? atoi(argv[1]) : 100;
-
-	for (int i=0; i<N; ++i) {
+	const int min_size = (argc>1) ? atoi(argv[1]) : 100;
+	while (tree.size()<min_size) {
 		Sphere s(random_point(), random_scalar.scalar());
 		size_t idx = tree.collides_with(s);
 		if (idx < tree.size()) {
@@ -33,19 +31,8 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	for (int i=0; i<N; ++i) {
-		point_type pt = random_point();
-		size_t idx = tree.find_nearest(pt);
-
-		for (const Sphere& s : tree) {
-			if (s.distance(pt) < tree[idx].distance(pt)) {
-				gutil::Logger::error("ERROR: did not find closest sphere");
-			}
-		}
-	}
-
-
 	//write spheres to a file
+	gutil::Logger::log("Tree has ", tree.size(), " spheres");
 	gutil::write_spheres_to_file("spheres.txt", tree.as_cspan());
 
 	return 0;

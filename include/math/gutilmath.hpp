@@ -223,6 +223,12 @@ namespace gutil {
 		return x < lo ? lo : (x > hi ? hi : x);
 	}
 
+	GUTIL_DECLARE_SIMD()
+	template<IsScalar T>
+	[[nodiscard]] inline constexpr T clamp_periodic(T x, T lo, T hi) noexcept {
+		return lo + gutil::fmod(x-lo, hi-lo);
+	}
+
 
 	///////////////////////////////////////////////////////////
 	/// Component-wise arithmetic

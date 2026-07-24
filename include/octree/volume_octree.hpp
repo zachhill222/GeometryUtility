@@ -80,27 +80,27 @@ namespace gutil {
 		////////////////////////////////////////////////////////////////
 		// Implementation of CRTP interface
 		////////////////////////////////////////////////////////////////
-		bool intersects_impl(const box_type& box, const value_type& value) const noexcept requires(std::same_as<value_type,box_type>) {
+		[[nodiscard]] bool intersects_impl(const box_type& box, const value_type& value) const noexcept requires(std::same_as<value_type,box_type>) {
 			return box.intersects(value);
 		}
 
-		bool intersects_impl(const box_type& box, const value_type& value) const noexcept requires(!std::same_as<value_type,box_type>) {
+		[[nodiscard]] bool intersects_impl(const box_type& box, const value_type& value) const noexcept requires(!std::same_as<value_type,box_type>) {
 			return gutil::collides(box,value);
 		}
 
-		bool intersects_impl(const value_type& A, const value_type& B) const noexcept requires(!std::same_as<value_type,box_type>) {
+		[[nodiscard]] bool intersects_impl(const value_type& A, const value_type& B) const noexcept requires(!std::same_as<value_type,box_type>) {
 			return gutil::collides(A,B);
 		}
 
-		scalar_type distance_sq_impl(const value_type& value, const point_type& point) const {
+		[[nodiscard]] scalar_type distance_sq_impl(const value_type& value, const point_type& point) const {
 			return value.distance_sq(point);
 		}
 
-		point_type get_point_impl(const value_type& value) const {
+		[[nodiscard]] point_type get_point_impl(const value_type& value) const {
 			return value.center;
 		}
 
-		scalar_type signed_distance(const point_type& point) const {
+		[[nodiscard]] scalar_type signed_distance(const point_type& point) const {
 			size_t idx = this->find_nearest(point);
 			return this->data_[idx].signed_distance(point);
 		}

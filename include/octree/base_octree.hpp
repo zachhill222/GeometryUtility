@@ -6,7 +6,6 @@
 #include "memory/thread_pool.hpp"
 
 #include "octree/base_node.hpp"
-#include "octree/node_policies.hpp"
 
 #include <concepts>
 

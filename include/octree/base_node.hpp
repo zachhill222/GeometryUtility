@@ -7,7 +7,6 @@
 #include "algorithms/sorting.hpp"
 
 #include "octree/index_key.hpp"
-#include "octree/node_policies.hpp"
 
 #include <memory>
 #include <array>
