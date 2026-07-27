@@ -174,6 +174,29 @@ namespace gutil {
 				}
 			}
 		};
+
+		/// compute x^y
+		void pow() = delete;
+		struct pow_fn final {
+			template<IsScalar X, IsScalar Y>
+			[[nodiscard]] GUTIL_STATIC_CALL constexpr X operator()(X x, Y y) GUTIL_STATIC_CALL_CONST noexcept {
+				if constexpr (requires { pow(x,y); }) {
+					return pow(x,y);
+				}
+				else if constexpr (IsReal<X> && IsInteger<Y>) {
+					if (y<Y{0}) {x = X{1}/x; y=-y;}
+					else if (y==Y{0}) {return X{1};}
+
+					//TODO: replace with fast exponentiation
+					X p{1};
+					for (Y i=0; i<y; ++i) { p*=x; }
+					return p;
+				}
+				else {
+					static_assert(always_false_v<X>, "gutil::ldexp - no function found");
+				}
+			}
+		};
 	}
 
 	inline constexpr _cpo_::sqrt_fn		sqrt{};
@@ -184,6 +207,7 @@ namespace gutil {
 	inline constexpr _cpo_::atan2_fn	atan2{};
 	inline constexpr _cpo_::fmod_fn 	fmod{};
 	inline constexpr _cpo_::ldexp_fn 	ldexp{};
+	inline constexpr _cpo_::pow_fn 		pow{};
 
 
 	///////////////////////////////////////////////////////////

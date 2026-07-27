@@ -265,7 +265,19 @@ namespace gutil {
 			return idx ? *idx : size_t(-1);
 		}
 
-
+		template<typename T>
+		[[nodiscard]] bool collides(const T& obj) const noexcept {
+			if (data_.empty()) { return false; }
+			std::atomic<bool> flag = false;
+			if constexpr (GUTIL_N_OCTREE_THREADS>0) {
+				threads_.submit([&]() { recursive_collides(root_, obj, flag); } );
+				threads_.wait_idle();
+			}
+			else {
+				recursive_collides(root_, obj, flag);
+			}
+			return flag.load();
+		}
 
 	private:
 		////////////////////////////////////////////////////////////////
@@ -274,6 +286,9 @@ namespace gutil {
 		void recursive_sort_and_insert(node_type* node, size_t idx_start, std::span<value_type> values) noexcept;
 
 		void recursive_find_nearest(const node_type* node, const point_type& point, scalar_type& dist_sq, size_t& idx) const noexcept requires (Opts::HAS_DISTANCE_SQ);
+
+		template<typename T>
+		void recursive_collides(const node_type* node, const T& obj, std::atomic<bool>& flag) const noexcept;
 
 		[[nodiscard]] int get_child_node(const node_type* node, const value_type& value) const noexcept {
 			if constexpr (VOLUME_DATA) {
@@ -440,7 +455,41 @@ namespace gutil {
 		}
 	}
 
+	template<typename D, typename O>
+	template<typename T>
+	void BasicOctree<D,O>::recursive_collides(const node_type* node, const T& obj, std::atomic<bool>& flag) const noexcept {
+		assert(node);
+		if (flag.load()) {return;}
 
+		if ( node->is_leaf() ) {
+			for (const size_t i : node->data) {
+				if (collides(data_[i], obj)) {
+					flag = true;
+					return;
+				}
+			}
+		}
+		else {
+			if constexpr (VOLUME_DATA) {
+				if ( !node->data.empty() ) {
+					for (const size_t i : node->data) {
+						if (collides(data_[i], obj)) {
+							flag = true;
+							return;
+						}
+					}
+				}
+			}
+
+			//sort children to recurse into closest first
+			for (int c=0; c<N_CHILDREN; ++c) {
+				const node_type* child = node->children + c;
+				if (collides(child->bbox, obj)) {
+					recursive_collides(child, obj, flag);
+				}
+			}
+		}
+	}
 
 	template<typename D, typename O>
 	[[nodiscard]] size_t BaseOctree<D,O>::find(const value_type& value) const noexcept {

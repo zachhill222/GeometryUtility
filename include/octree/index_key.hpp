@@ -219,7 +219,6 @@ namespace gutil {
 		///
 		/// The linear key is the same as the raw data the would be used to represent
 		/// the current key if the max depth were the current depth.
-		GUTIL_DECLARE_SIMD()
 		[[nodiscard]] constexpr uint64_t linear_key() const noexcept {
 			uint64_t idx{0};
 			const uint64_t d = depth();
@@ -265,7 +264,6 @@ namespace gutil {
 		//////////////////////////////////////////////////////////////
 		/// Get the key of a child or parent
 		//////////////////////////////////////////////////////////////
-		GUTIL_DECLARE_SIMD()
 		[[nodiscard]] constexpr IndexKey parent() noexcept {
 			assert(depth()>0);
 			assert(check_bit());
@@ -278,7 +276,6 @@ namespace gutil {
 			return key;
 		}
 
-		GUTIL_DECLARE_SIMD()
 		[[nodiscard]] constexpr IndexKey child(int c) noexcept {
 			assert(depth()<MAX_DEPTH);
 			assert(check_bit());
@@ -294,7 +291,6 @@ namespace gutil {
 			return key;
 		}
 
-		GUTIL_DECLARE_SIMD()
 		[[nodiscard]] constexpr IndexKey neighbor(const std::array<int,DIM>& offsets) const noexcept {
 			assert(depth()<MAX_DEPTH);
 			assert(check_bit());
