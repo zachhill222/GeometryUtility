@@ -270,11 +270,11 @@ namespace gutil {
 			if (data_.empty()) { return false; }
 			std::atomic<bool> flag = false;
 			if constexpr (GUTIL_N_OCTREE_THREADS>0) {
-				threads_.submit([&]() { recursive_collides(root_, obj, flag); } );
+				threads_.submit([&]() { recursive_collides<T>(root_, obj, flag); } );
 				threads_.wait_idle();
 			}
 			else {
-				recursive_collides(root_, obj, flag);
+				recursive_collides<T>(root_, obj, flag);
 			}
 			return flag.load();
 		}
