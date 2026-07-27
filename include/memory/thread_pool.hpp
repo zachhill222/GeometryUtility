@@ -37,13 +37,17 @@ namespace gutil {
 		ThreadPool& operator=(ThreadPool&&) = delete;
 
 		/// Allow an external thread to dispatch work to the pool
-		template<typename FunctionType>
-		void submit(FunctionType&& f) {
+		template<typename FunctionType, typename... Args>
+		void submit(FunctionType&& f, Args&&... args) {
 			++outstanding_;
 			{
-				//put task onto the queue
-				auto packed_function = [this, f = std::forward<FunctionType>(f)]() mutable {
-					f();
+				//put task onto the queue, note that args are generally copied into different threads.
+				static_assert(std::is_invocable_v<std::decay_t<FunctionType>, std::decay_t<Args>...>,
+					"submit: callable must be invocable with decayed (by-value) argument types -- "
+					"wrap in std::ref() or capture as a reference in the lambda if the task needs to mutate a caller-scope variable.");
+
+				auto packed_function = [this, f = std::forward<FunctionType>(f), ...args = std::forward<Args>(args)]() mutable {
+					f(std::forward<Args>(args)...);
 					if (--outstanding_ == 0) {
 						std::lock_guard<std::mutex> lock(queue_mtx_);
 						done_cv_.notify_all();

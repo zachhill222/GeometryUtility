@@ -232,8 +232,8 @@ int main(int argc, char** argv) {
 	// {auto tree2 = generate_random_tree(N);}
 	test_octree_find(tree);
 	auto tree_near = find_nearest_octree(tree, query);
-	auto brute_near = find_nearest_brute_force(tree.data(), query);
-	compare_nearest(tree.data(), query, tree_near, brute_near);
+	auto brute_near = find_nearest_brute_force(tree.as_span(), query);
+	compare_nearest(tree.as_span(), query, tree_near, brute_near);
 
 	std::cout << "\nOctree points:\n";
 	gutil::print_to_stream(std::cout, std::span<const point_type>(tree.begin(), tree.begin()+5), "\n");
