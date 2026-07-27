@@ -55,6 +55,11 @@ namespace gutil
 	}
 
 	template<int DIM, IsReal T>
+	inline constexpr bool collides(const Sphere<DIM,T>& B, const Box<DIM,T>& A) noexcept {
+		return gutil::distance_squared(A, B.center) <= B.radius*B.radius;
+	}
+
+	template<int DIM, IsReal T>
 	inline std::ostream& operator<<(std::ostream& os, const Sphere<DIM,T>& sphere) {
 		os << "Sphere{center={ " << sphere.center << "}, radius={ " << sphere.radius << " }}";
 		return os; 
