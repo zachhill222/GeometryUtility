@@ -71,7 +71,7 @@ namespace gutil {
 		index_alloc_type index_alloc_{};
 
 
-		ThreadPool threads_{GUTIL_N_OCTREE_THREADS};
+		mutable ThreadPool threads_{GUTIL_N_OCTREE_THREADS};
 		static constexpr size_t SPAWN_THREAD_THRESHOLD = GUTIL_OCTREE_SPAWN_THREAD_THRESHOLD;
 
 
