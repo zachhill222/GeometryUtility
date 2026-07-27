@@ -457,7 +457,7 @@ namespace gutil {
 
 	template<typename D, typename O>
 	template<typename T>
-	void BasicOctree<D,O>::recursive_collides(const node_type* node, const T& obj, std::atomic<bool>& flag) const noexcept {
+	void BaseOctree<D,O>::recursive_collides(const node_type* node, const T& obj, std::atomic<bool>& flag) const noexcept {
 		assert(node);
 		if (flag.load()) {return;}
 
