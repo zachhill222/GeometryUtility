@@ -463,7 +463,7 @@ namespace gutil {
 
 		if ( node->is_leaf() ) {
 			for (const size_t i : node->data) {
-				if (collides(data_[i], obj)) {
+				if (gutil::collides(data_[i], obj)) {
 					flag = true;
 					return;
 				}
@@ -473,7 +473,7 @@ namespace gutil {
 			if constexpr (VOLUME_DATA) {
 				if ( !node->data.empty() ) {
 					for (const size_t i : node->data) {
-						if (collides(data_[i], obj)) {
+						if (gutil::collides(data_[i], obj)) {
 							flag = true;
 							return;
 						}
@@ -484,7 +484,7 @@ namespace gutil {
 			//sort children to recurse into closest first
 			for (int c=0; c<N_CHILDREN; ++c) {
 				const node_type* child = node->children + c;
-				if (collides(child->bbox, obj)) {
+				if (gutil::collides(child->bbox, obj)) {
 					recursive_collides(child, obj, flag);
 				}
 			}
