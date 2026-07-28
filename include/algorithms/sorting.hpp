@@ -28,7 +28,12 @@ namespace gutil
 		template<typename Predicate>
 		void recursive_partition_bit(std::span<T> data, int bit, int bin, Predicate&& int_pred) noexcept;
 	public:
-		BinSort() {}
+		BinSort() = default;
+		BinSort(const BinSort&) = default;
+		BinSort(BinSort&&) = default;
+		BinSort& operator=(const BinSort&) = default;
+		BinSort& operator=(BinSort&&) = default;
+		
 		BinSort(std::span<T> data, int N) : n_bins{N}, data(data), bins(N+1) {
 			GUTIL_ASSERT(N>0);
 			n_bits = std::bit_width(static_cast<uint>(N-1));
@@ -90,11 +95,11 @@ namespace gutil
 		const int left_bin = bin;
 		const int right_bin = bin | (int{1} << bit);
 
-		if (left_bin <= n_bins) {
+		if (left_bin < n_bins) {
 			recursive_partition_bit(std::span<T>{data.begin(), mid}, bit-1, left_bin, int_pred);
 		}
 		
-		if (right_bin <= n_bins) {
+		if (right_bin < n_bins) {
 			recursive_partition_bit(std::span<T>{mid, data.end()}, bit-1, right_bin, std::forward<Predicate>(int_pred));
 		}
 	}
