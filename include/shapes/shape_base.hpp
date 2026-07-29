@@ -42,8 +42,18 @@ namespace gutil {
 			center = point;
 		}
 
-		constexpr void translate_by(const point_type& point) noexcept {
-			center+=point;
+		constexpr void translate_by(const point_type& shift) noexcept {
+			center+=shift;
+		}
+
+		[[maybe_unused]] constexpr auto& operator+=(const point_type& shift) noexcept {
+			translate_by(shift);
+			return *this;
+		}
+
+		[[maybe_unused]] constexpr auto operator+(const point_type& shift) noexcept {
+			auto cpy{*this};
+			return cpy+=shift;
 		}
 
 		//every shape must implement this interface
