@@ -46,13 +46,13 @@ namespace gutil {
 			center+=shift;
 		}
 
-		[[maybe_unused]] constexpr auto& operator+=(const point_type& shift) noexcept {
+		[[maybe_unused]] constexpr Derived& operator+=(const point_type& shift) noexcept {
 			translate_by(shift);
-			return *this;
+			return static_cast<Derived&>(*this);
 		}
 
-		[[maybe_unused]] constexpr auto operator+(const point_type& shift) noexcept {
-			auto cpy{*this};
+		[[nodiscard]] constexpr Derived operator+(const point_type& shift) noexcept {
+			Derived cpy{static_cast<const Derived&>(*this)};
 			return cpy+=shift;
 		}
 
@@ -88,9 +88,8 @@ namespace gutil {
 
 
 	template<IsScalar T, typename Derived> //quaternions only work for DIM=3
-	struct BaseRotatableShape : public BaseShape<3, T, BaseRotatableShape<T,Derived>>
-	{
-		using BASE = BaseShape<3, T,BaseRotatableShape<T,Derived>>;
+	struct BaseRotatableShape : public BaseShape<3, T, Derived> {
+		using BASE = BaseShape<3, T, Derived>;
 		
 		using point_type = typename BASE::point_type;
 		using box_type = typename BASE::box_type;
@@ -147,31 +146,31 @@ namespace gutil {
 		}
 
 		//pass other implementations to the actual shape
-		[[nodiscard]] constexpr box_type bbox_impl() const noexcept {
-			return static_cast<const Derived*>(this) -> bbox_impl();
-		}
+		// [[nodiscard]] constexpr box_type bbox_impl() const noexcept {
+		// 	return static_cast<const Derived*>(this) -> bbox_impl();
+		// }
 
-		[[nodiscard]] constexpr point_type support_impl(const point_type& direction) const noexcept {
-			return static_cast<const Derived*>(this) -> support_impl(direction);
-		}
+		// [[nodiscard]] constexpr point_type support_impl(const point_type& direction) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> support_impl(direction);
+		// }
 
-		[[nodiscard]] constexpr T distance_sq_impl(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> distance_sq_impl(point);
-		}
+		// [[nodiscard]] constexpr T distance_sq_impl(const point_type& point) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> distance_sq_impl(point);
+		// }
 
-		[[nodiscard]] constexpr T distance_impl(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> distance_impl(point);
-		}
+		// [[nodiscard]] constexpr T distance_impl(const point_type& point) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> distance_impl(point);
+		// }
 		
-		[[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> signed_distance_impl(point);
-		}
+		// [[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> signed_distance_impl(point);
+		// }
 	};
 
 	template<int DIM, IsScalar T, typename Derived> requires (DIM>0)
-	struct BaseNonRotatableShape : public BaseShape<DIM, T, BaseNonRotatableShape<DIM, T,Derived>>
+	struct BaseNonRotatableShape : public BaseShape<DIM, T, Derived>
 	{
-		using BASE = BaseShape<DIM, T,BaseNonRotatableShape<DIM, T,Derived>>;
+		using BASE = BaseShape<DIM, T, Derived>;
 		
 		using point_type = typename BASE::point_type;
 		using box_type = typename BASE::box_type;
@@ -189,25 +188,25 @@ namespace gutil {
 		}
 
 		//pass other implementations to the actual shape
-		[[nodiscard]] constexpr box_type bbox_impl() const noexcept {
-			return static_cast<const Derived*>(this) -> bbox_impl();
-		}
+		// [[nodiscard]] constexpr box_type bbox_impl() const noexcept {
+		// 	return static_cast<const Derived*>(this) -> bbox_impl();
+		// }
 
-		[[nodiscard]] constexpr point_type support_impl(const point_type& direction) const noexcept {
-			return static_cast<const Derived*>(this) -> support_impl(direction);
-		}
+		// [[nodiscard]] constexpr point_type support_impl(const point_type& direction) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> support_impl(direction);
+		// }
 
-		[[nodiscard]] constexpr T distance_sq_impl(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> distance_sq_impl(point);
-		}
+		// [[nodiscard]] constexpr T distance_sq_impl(const point_type& point) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> distance_sq_impl(point);
+		// }
 
-		[[nodiscard]] constexpr T distance_impl(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> distance_impl(point);
-		}
+		// [[nodiscard]] constexpr T distance_impl(const point_type& point) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> distance_impl(point);
+		// }
 
-		[[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {
-			return static_cast<const Derived*>(this) -> signed_distance_impl(point);
-		}
+		// [[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {
+		// 	return static_cast<const Derived*>(this) -> signed_distance_impl(point);
+		// }
 	};
 
 }

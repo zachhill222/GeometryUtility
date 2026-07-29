@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
 	box_type box( point_type::Filled(0), point_type::Filled(1) );
 	gutil::VolumeOctree<Sphere> tree(box);
 
-	const int min_size = (argc>1) ? atoi(argv[1]) : 100;
+	const size_t min_size = (argc>1) ? atoi(argv[1]) : 100;
 	while (tree.size()<min_size) {
 		Sphere s(random_point(), random_scalar.scalar());
 		size_t idx = tree.collides_with(s);
