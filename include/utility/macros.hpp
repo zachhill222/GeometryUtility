@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utility/extra.hpp"
+
 //////////////////////////////////////////////////////
 /// If OpenMP is present, some operations are provided with 
 /// vectorized versions over spans. Note that if
@@ -68,4 +70,16 @@
 #else
     #define GUTIL_STATIC_CALL
     #define GUTIL_STATIC_CALL_CONST const
+#endif
+
+
+//////////////////////////////////////////////////////
+/// Enable/disable some profiling tools
+//////////////////////////////////////////////////////
+#ifdef PROFILE
+	#define GUTIL_PROFILE(...) _VA_ARGS_
+	#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer{_VA_ARGS_};
+#else
+	#define GUTIL_PROFILE(...)
+	#define GUTIL_TIMER(...)
 #endif

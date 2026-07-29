@@ -130,7 +130,8 @@ namespace gutil {
 		const std::string label;
 		std::chrono::steady_clock::time_point mark_start;
 
-		explicit LogTime(const std::string label) : label{label}, mark_start{std::chrono::steady_clock::now()} {}
+		template<typename... Ts>
+		explicit LogTime(const Ts&... args) : label{(gutil::to_string(args) + ...)}, mark_start{std::chrono::steady_clock::now()} {}
 
 		~LogTime() {
 			const auto now = std::chrono::steady_clock::now();

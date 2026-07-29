@@ -16,7 +16,7 @@ namespace gutil {
 			if (n_threads==0) {n_threads=1;}	//always have at least one thread
 			workers_.reserve(n_threads);
 			for (size_t i=0; i<n_threads; ++i) {
-				workers_.emplace_back([this]() { worker_loop(); });
+				workers_.emplace_back([this, i]() { worker_loop(static_cast<int>(i)); });
 			}
 		}
 
@@ -41,21 +41,39 @@ namespace gutil {
 		void submit(FunctionType&& f, Args&&... args) {
 			++outstanding_;
 			{
+				//determine if the function need the thread number
+				constexpr bool PASS_THREAD_NUM = std::is_invocable_v<std::decay_t<FunctionType>, int, std::decay_t<Args>...>;
+
+
 				//put task onto the queue, note that args are generally copied into different threads.
-				static_assert(std::is_invocable_v<std::decay_t<FunctionType>, std::decay_t<Args>...>,
+				static_assert(PASS_THREAD_NUM || std::is_invocable_v<std::decay_t<FunctionType>, std::decay_t<Args>...>,
 					"submit: callable must be invocable with decayed (by-value) argument types -- "
 					"wrap in std::ref() or capture as a reference in the lambda if the task needs to mutate a caller-scope variable.");
 
-				auto packed_function = [this, f = std::forward<FunctionType>(f), ...args = std::forward<Args>(args)]() mutable {
-					f(std::forward<Args>(args)...);
-					if (--outstanding_ == 0) {
-						std::lock_guard<std::mutex> lock(queue_mtx_);
-						done_cv_.notify_all();
-					}
-				};
+				if constexpr (PASS_THREAD_NUM) {
+					auto packed_function = [this, f = std::forward<FunctionType>(f), ...args = std::forward<Args>(args)](int thread_number) mutable {
+						f(thread_number, std::forward<Args>(args)...);
+						if (--outstanding_ == 0) {
+							std::lock_guard<std::mutex> lock(queue_mtx_);
+							done_cv_.notify_all();
+						}
+					};
+					std::lock_guard<std::mutex> lock(queue_mtx_);
+					tasks_.emplace(std::move(packed_function));
+				}
+				else {
+					//append a dummy int argument so the worker thread doesn't have to decide if it needs to pass the thread number
+					auto packed_function = [this, f = std::forward<FunctionType>(f), ...args = std::forward<Args>(args)](int) mutable {
+						f(std::forward<Args>(args)...);
+						if (--outstanding_ == 0) {
+							std::lock_guard<std::mutex> lock(queue_mtx_);
+							done_cv_.notify_all();
+						}
+					};
 
-				std::lock_guard<std::mutex> lock(queue_mtx_);
-				tasks_.emplace(std::move(packed_function));
+					std::lock_guard<std::mutex> lock(queue_mtx_);
+					tasks_.emplace(std::move(packed_function));
+				}
 			}
 			cv_.notify_one();
 		}
@@ -70,9 +88,9 @@ namespace gutil {
 		[[nodiscard]] size_t n_threads() const noexcept { return workers_.size(); }
 
 	private:
-		void worker_loop() {
+		void worker_loop(const int thread_number) {
 			while (true) {
-				std::function<void()> task;
+				std::function<void(int)> task;
 				{
 					std::unique_lock<std::mutex> lock(queue_mtx_);
 					cv_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
@@ -80,12 +98,12 @@ namespace gutil {
 					task = std::move(tasks_.front());
 					tasks_.pop();
 				}
-				task();
+				task(thread_number);
 			}
 		}
 
 		std::vector<std::thread> workers_;
-		std::queue<std::function<void()>> tasks_;
+		std::queue<std::function<void(int)>> tasks_;
 		std::mutex queue_mtx_;
 		std::condition_variable cv_;		//get thread to start task
 		std::condition_variable done_cv_;	//allow a calling thread to wait until all tasks are done
