@@ -25,11 +25,11 @@ ifdef NDEBUG
 	CC = $(CXX) -O3
 	DEFINES += -DNDEBUG
 else
-	CC = $(CXX) -O0 -Wall -pg
+	CC = $(CXX) -O0 -Wall -pg -g
 endif
 
 #link to libraries
-LIBS = 
+LIBS = -lstdc++_libbacktrace
 ifdef OMP
 	LIBS += -fopenmp
 endif
