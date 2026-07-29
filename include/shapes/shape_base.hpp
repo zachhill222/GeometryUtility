@@ -51,7 +51,7 @@ namespace gutil {
 			return static_cast<Derived&>(*this);
 		}
 
-		[[nodiscard]] constexpr Derived operator+(const point_type& shift) noexcept {
+		[[nodiscard]] constexpr Derived operator+(const point_type& shift) const noexcept {
 			Derived cpy{static_cast<const Derived&>(*this)};
 			return cpy+=shift;
 		}
