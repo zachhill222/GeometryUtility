@@ -126,6 +126,20 @@ namespace gutil {
 			return static_cast<const Derived*>(this) -> intersects_impl(A,B);
 		}
 
+		//fallback method
+		template<typename T, typename U>
+		[[nodiscard]] static constexpr bool intersects(const T& A, const U& B) noexcept {
+			if constexpr (requires { gutil::collides(A,B); }) {
+				return gutil::collides(A,B);
+			}
+			else if constexpr (requires { gutil::collides(B,A); }) {
+				return gutil::collides(B,A);
+			}
+			else {
+				static_assert(gutil::always_false_v<T>, "BaseOctree - cannot detect intersection");
+			}
+		}
+
 		[[nodiscard]] point_type get_point(const value_type& value)  const noexcept {
 			return static_cast<const Derived*>(this) -> get_point_impl(value);
 		}
