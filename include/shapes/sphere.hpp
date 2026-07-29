@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utility/utility.hpp"
 #include "shapes/shape_base.hpp"
 #include "algorithms/convex_collision.hpp"
 
@@ -30,6 +31,14 @@ namespace gutil
 		[[nodiscard]] constexpr T signed_distance_impl(const point_type& point) const noexcept {
 			//signed distance: positive is outside, negative is inside
 			return this->dist2center(point) - radius;
+		}
+
+		[[nodiscard]] constexpr T grad_signed_distance_impl(const point_type& point) const noexcept {
+			//always points away from the surface, gradient of dist2center = norm2(point-center)
+			//so the gradient is (point-center)/norm2(point-center)
+			point_type dir = point - center;
+			const T n2 = gutil::norm2(dir);
+			return (n2 < T{100}*Lowest<T>::value) ? point_type::Zeros() : dir/n2;
 		}
 
 		[[nodiscard]] constexpr T distance_sq_impl(const point_type& point) const noexcept {
