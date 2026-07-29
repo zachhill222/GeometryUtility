@@ -38,7 +38,7 @@ namespace gutil
 			//so the gradient is (point-center)/norm2(point-center)
 			point_type dir = point - center;
 			const T n2 = gutil::norm2(dir);
-			return (n2 < T{100}*Lowest<T>::value) ? point_type::Zeros() : dir/n2;
+			return (n2 < T{100}*Lowest<T>::value) ? (point_type::Zeros()) : (dir/n2);
 		}
 
 		[[nodiscard]] constexpr T distance_sq_impl(const point_type& point) const noexcept {
