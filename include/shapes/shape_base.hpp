@@ -38,7 +38,7 @@ namespace gutil {
 			return static_cast<const Derived*>(this) -> signed_distance_impl(point);
 		}
 
-		[[nodiscard]] constexpr T grad_signed_distance(const point_type& point) const noexcept {
+		[[nodiscard]] constexpr point_type grad_signed_distance(const point_type& point) const noexcept {
 			return static_cast<const Derived*>(this) -> grad_signed_distance_impl_impl(point);
 		}
 
