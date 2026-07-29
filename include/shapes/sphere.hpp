@@ -33,7 +33,7 @@ namespace gutil
 			return this->dist2center(point) - radius;
 		}
 
-		[[nodiscard]] constexpr T grad_signed_distance_impl(const point_type& point) const noexcept {
+		[[nodiscard]] constexpr point_type grad_signed_distance_impl(const point_type& point) const noexcept {
 			//always points away from the surface, gradient of dist2center = norm2(point-center)
 			//so the gradient is (point-center)/norm2(point-center)
 			point_type dir = point - center;
