@@ -75,8 +75,8 @@
 /// Enable/disable some profiling tools
 //////////////////////////////////////////////////////
 #ifdef PROFILE
-	#define GUTIL_PROFILE(...) _VA_ARGS_
-	#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer{_VA_ARGS_};
+	#define GUTIL_PROFILE(...) __VA_ARGS__
+	#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer{__VA_ARGS__};
 #else
 	#define GUTIL_PROFILE(...)
 	#define GUTIL_TIMER(...)
