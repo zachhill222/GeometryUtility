@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utility/macros.hpp"
+
 #include <span>
 #include <iostream>
 #include <string_view>

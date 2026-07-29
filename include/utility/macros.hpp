@@ -1,7 +1,5 @@
 #pragma once
 
-#include "utility/extra.hpp"
-
 //////////////////////////////////////////////////////
 /// If OpenMP is present, some operations are provided with 
 /// vectorized versions over spans. Note that if
