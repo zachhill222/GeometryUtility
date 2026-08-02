@@ -6,6 +6,10 @@
 #include <string_view>
 #include <source_location>
 
+#ifdef __cpp_lib_stacktrace
+	#include <stacktrace>
+#endif
+
 
 #ifndef NDEBUG
 	#define GUTIL_ASSERT(cond) gutil::gutil_assert(cond, #cond);
@@ -17,7 +21,11 @@
 
 namespace gutil {
 	inline void gutil_assert_runtime(bool cond, std::string_view condition_str,
-			std::source_location loc = std::source_location::current() ) noexcept {
+			std::source_location loc = std::source_location::current()
+			#ifdef __cpp_lib_stacktrace
+			, std::stacktrace trace = std::stacktrace::current()
+			#endif
+			) noexcept {
 		if (cond) { return; }
 
 		Logger::error("GUTIL_ASSERT : ",condition_str,"\n",
@@ -27,9 +35,20 @@ namespace gutil {
 	}
 
 	inline constexpr void gutil_assert(bool cond, std::string_view condition_str,
-			std::source_location loc = std::source_location::current()) {
+			std::source_location loc = std::source_location::current()
+			#ifdef __cpp_lib_stacktrace
+			, std::stacktrace trace = std::stacktrace::current()
+			#endif
+			) noexcept {
 		if consteval {}
-		else {gutil_assert_runtime(cond,condition_str,loc);}
+		else {
+			#ifdef __cpp_lib_stacktrace
+				gutil_assert_runtime(cond,condition_str,loc,trace);
+			#else
+				gutil_assert_runtime(cond,condition_str,loc);
+			#endif
+		}
+
 	}
 
 	inline void gutil_abort(std::string_view condition_str,
