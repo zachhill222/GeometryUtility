@@ -26,9 +26,10 @@ namespace gutil {
 		std::abort();
 	}
 
-	inline constexpr void gutil_assert(bool cond, std::string_view condition_str) {
+	inline constexpr void gutil_assert(bool cond, std::string_view condition_str,
+			std::source_location loc = std::source_location::current()) {
 		if consteval {}
-		else {gutil_assert_runtime(cond,condition_str);}
+		else {gutil_assert_runtime(cond,condition_str,loc);}
 	}
 
 	inline void gutil_abort(std::string_view condition_str,
