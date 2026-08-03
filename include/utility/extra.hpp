@@ -127,17 +127,7 @@ namespace gutil {
 			err -> flush();
 		}
 
-		//starting time of the program, sychronization mutex, and output stream
-		static inline std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-		static inline std::mutex mtx{};
-		static inline std::ostream* out = &std::cout;
-		static inline std::ostream* err = &std::cerr;
-
-		//change the output stream
-		static void set_output(std::ostream& os) {out = &os;}
-		static void set_error(std::ostream& os) {err = &os;}
-
-		//write to the ouput stream (thread safe)
+		//write to the ouput stream (with line number, use GUTIL_LOG/GUTIL_ERROR)
 		template<typename... Ts>
 		static void log_impl(const char* file, int line, const Ts&... args) {
 			const auto now = std::chrono::steady_clock::now();
