@@ -11,6 +11,8 @@
 //////////////////////////////////////////////////////
 /// Helper macros.
 //////////////////////////////////////////////////////
+#define GUTIL_CONCAT_IMPL(a,b) a##b
+#define GUTIL_CONCAT(a,b) GUTIL_CONCAT_IMPL(a,b)
 #define GUTIL_STRINGIFY(x) #x
 #define GUTIL_PRAGMA(x) _Pragma(#x)
 
