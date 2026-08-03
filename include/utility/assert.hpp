@@ -30,7 +30,11 @@ namespace gutil {
 
 		Logger::error("GUTIL_ASSERT : ",condition_str,"\n",
 						 "\tat ",loc.file_name()," : ",loc.line()," : ",loc.column(),"\n",
-						 "\tin ",loc.function_name());
+						 "\tin ",loc.function_name()
+						 #ifdef __cpp_lib_stacktrace
+						 "\n", std::to_string(trace)
+						 #endif
+						 );
 		std::abort();
 	}
 

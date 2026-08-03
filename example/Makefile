@@ -29,7 +29,7 @@ else
 endif
 
 #link to libraries
-LIBS = -lstdc++_libbacktrace
+LIBS = -lstdc++exp
 ifdef OMP
 	LIBS += -fopenmp
 endif

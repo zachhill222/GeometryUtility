@@ -2,6 +2,7 @@
 
 #include "utility/macros.hpp"
 #include "utility/concepts.hpp"
+#include "utility/assert.hpp"
 
 #include <cmath>
 #include <algorithm>
