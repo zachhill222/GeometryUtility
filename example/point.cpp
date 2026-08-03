@@ -28,8 +28,8 @@ using tree_type = PointOctree<point_type>;
 
 std::vector<point_type> generate_points(size_t N) {
 	std::cout << "\n";
-	Logger::log("START: generate_points");
-	LogTime time{"END: generate_points"};
+	GUTIL_LOG("START: generate_points");
+	GUTIL_TIMER("END: generate_points");
 
 	auto random_point = UniformRandomPoint<point_type,false>();
 	random_point.set_parameters(Scalar{-10}, Scalar{10});
@@ -48,8 +48,8 @@ std::vector<point_type> generate_points(size_t N) {
 
 tree_type generate_random_tree(size_t N) {
 	std::cout << "\n";
-	Logger::log("START: generate_random_tree");
-	LogTime time{"END: generate_random_tree"};
+	GUTIL_LOG("START: generate_random_tree");
+	GUTIL_TIMER("END: generate_random_tree");
 
 	auto random_point = UniformRandomPoint<point_type,false>();
 	random_point.set_parameters(Scalar{-10}, Scalar{10});
@@ -68,8 +68,8 @@ tree_type generate_random_tree(size_t N) {
 
 void test_standard_sum(std::span<const point_type> list) {
 	std::cout << "\n";
-	Logger::log("START: test_standard_sum");
-	LogTime time{"END: test_standard_sum"};
+	GUTIL_LOG("START: test_standard_sum");
+	GUTIL_TIMER("END: test_standard_sum");
 
 	point_type val = point_type::Zeros();
 	for (auto& p : list) {val += p;}
@@ -79,24 +79,24 @@ void test_standard_sum(std::span<const point_type> list) {
 
 void test_sorted_sum(std::span<const point_type> list) {
 	std::cout << "\n";
-	Logger::log("START: test_sorted_sum");
-	LogTime time{"END: test_sorted_sum"};
+	GUTIL_LOG("START: test_sorted_sum");
+	GUTIL_TIMER("END: test_sorted_sum");
 
 	std::cout << "\tsum= " << sorted_sum(list) << std::endl;
 }
 
 void test_kahan_sum(std::span<const point_type> list) {
 	std::cout << "\n";
-	Logger::log("START: test_kahan_sum)");
-	LogTime time{"END: test_kahan_sum)"};
+	GUTIL_LOG("START: test_kahan_sum)");
+	GUTIL_TIMER("END: test_kahan_sum)");
 
 	std::cout << "\tsum= " << kahan_sum(list) << std::endl;
 }
 
 void construct_unordered_set(std::span<const point_type> list) {
 	std::cout << "\n";
-	Logger::log("START: construct_unordered_set");
-	LogTime time{"END: construct_unordered_set"};
+	GUTIL_LOG("START: construct_unordered_set");
+	GUTIL_TIMER("END: construct_unordered_set");
 
 	std::unordered_set<point_type> set;
 	set.reserve(list.size());
@@ -107,8 +107,8 @@ void construct_unordered_set(std::span<const point_type> list) {
 
 auto move_to_octree(std::span<point_type> list) {
 	std::cout << "\n";
-	Logger::log("START: move_to_octree");
-	LogTime time{"END: move_to_octree"};
+	GUTIL_LOG("START: move_to_octree");
+	GUTIL_TIMER("END: move_to_octree");
 
 	PointOctree<point_type> tree{point_type::Filled(-10), point_type::Filled(10)};
 	tree.push_back_range(list);
@@ -119,8 +119,8 @@ auto move_to_octree(std::span<point_type> list) {
 
 void test_octree_find(const PointOctree<point_type>& tree) {
 	std::cout << "\n";
-	Logger::log("START: test_octree_find");
-	LogTime time{"END: test_octree_find"};
+	GUTIL_LOG("START: test_octree_find");
+	GUTIL_TIMER("END: test_octree_find");
 
 	size_t n_miss = 0;
 	size_t idx = 0;
@@ -139,8 +139,8 @@ void test_octree_find(const PointOctree<point_type>& tree) {
 
 std::vector<size_t> find_nearest_octree(const PointOctree<point_type>& tree, std::span<const point_type> query) {
 	std::cout << "\n";
-	Logger::log("START: find_nearest_octree");
-	LogTime time{"END: find_nearest_octree"};
+	GUTIL_LOG("START: find_nearest_octree");
+	GUTIL_TIMER("END: find_nearest_octree");
 
 	const size_t N = query.size();
 	std::vector<size_t> result(N);
@@ -155,8 +155,8 @@ std::vector<size_t> find_nearest_octree(const PointOctree<point_type>& tree, std
 
 std::vector<size_t> find_nearest_brute_force(std::span<const point_type> points, std::span<const point_type> query) {
 	std::cout << "\n";
-	Logger::log("START: find_nearest_brute_force");
-	LogTime time{"END: find_nearest_brute_force"};
+	GUTIL_LOG("START: find_nearest_brute_force");
+	GUTIL_TIMER("END: find_nearest_brute_force");
 
 	if (points.empty()) {return {};}
 
@@ -180,8 +180,8 @@ std::vector<size_t> find_nearest_brute_force(std::span<const point_type> points,
 void compare_nearest(std::span<const point_type> points, std::span<const point_type> query,
 		std::span<const size_t> tree_idx, std::span<const size_t> brute_idx) {
 	std::cout << "\n";
-	Logger::log("START: compare_nearest");
-	LogTime time{"END: compare_nearest"};
+	GUTIL_LOG("START: compare_nearest");
+	GUTIL_TIMER("END: compare_nearest");
 
 	if (query.size() != tree_idx.size() || query.size() != brute_idx.size()) {
 		std::cerr << "\tERROR: dimension mismatch" << std::endl;

@@ -16,8 +16,23 @@
 #include <omp.h>
 #endif
 
+
+//////////////////////////////////////////////////////
+/// Enable/disable some profiling tools
+//////////////////////////////////////////////////////
+#ifdef PROFILE
+	#define GUTIL_PROFILE(...) __VA_ARGS__
+	#define GUTIL_PROFILE_TIMER(...) GUTIL_TIMER(__VA_ARGS__)
+#else
+	#define GUTIL_PROFILE(...)
+	#define GUTIL_PROFILE_TIMER(...)
+#endif
+
 #define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
 #define GUTIL_ERROR(...) gutil::Logger::error_impl(__FILE__, __LINE__, __VA_ARGS__)
+#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer{__FILE__, __LINE__, __VA_ARGS__}
+
+
 
 namespace gutil {
 	template<typename T>
@@ -115,12 +130,12 @@ namespace gutil {
 
 			std::lock_guard<std::mutex> lock(mtx);
 			#ifdef _OPENMP
-			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]\t"
+			*err   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]\tERROR: "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
-			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "]\t"
+			*err   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
+					<< "thread=" << std::this_thread::get_id() << "]\tERROR: "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
@@ -155,12 +170,12 @@ namespace gutil {
 
 			std::lock_guard<std::mutex> lock(mtx);
 			#ifdef _OPENMP
-			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "]\t"
+			*err   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "]\tERROR: "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
-			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "]\t"
+			*err   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
+					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "]\tERROR: "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
@@ -175,13 +190,29 @@ namespace gutil {
 		const std::string label;
 		std::chrono::steady_clock::time_point mark_start;
 
+		const char* file = nullptr;
+		int line = -1;
+
 		template<typename... Ts>
 		explicit LogTime(const Ts&... args) : label{(gutil::to_string(args) + ...)}, mark_start{std::chrono::steady_clock::now()} {}
+
+		template<typename... Ts>
+		explicit LogTime(const char* file, int line, const Ts&... args) : 
+			label{(gutil::to_string(args) + ...)}, 
+			mark_start{std::chrono::steady_clock::now()},
+			file{file},
+			line{line} {}
 
 		~LogTime() {
 			const auto now = std::chrono::steady_clock::now();
 			const double elapsed = std::chrono::duration<double>(now - mark_start).count();
-			Logger::log(label + " : " + std::to_string(elapsed) + "s");
+			if (file) {
+				Logger::log_impl(file, line, label + " : " + std::to_string(elapsed) + "s");
+			}
+			else {
+				Logger::log(label + " : " + std::to_string(elapsed) + "s");
+			}
+
 		}
 	};
 

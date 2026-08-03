@@ -69,15 +69,3 @@
     #define GUTIL_STATIC_CALL
     #define GUTIL_STATIC_CALL_CONST const
 #endif
-
-
-//////////////////////////////////////////////////////
-/// Enable/disable some profiling tools
-//////////////////////////////////////////////////////
-#ifdef PROFILE
-	#define GUTIL_PROFILE(...) __VA_ARGS__
-	#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer{__VA_ARGS__};
-#else
-	#define GUTIL_PROFILE(...)
-	#define GUTIL_TIMER(...)
-#endif
