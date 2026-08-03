@@ -97,11 +97,11 @@ namespace gutil {
 
 			#ifdef _OPENMP
 			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]"
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
 			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "]"
+					<< "thread=" << std::this_thread::get_id() << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
@@ -116,11 +116,11 @@ namespace gutil {
 			std::lock_guard<std::mutex> lock(mtx);
 			#ifdef _OPENMP
 			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]"
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
 			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "]"
+					<< "thread=" << std::this_thread::get_id() << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
@@ -137,11 +137,11 @@ namespace gutil {
 
 			#ifdef _OPENMP
 			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "] "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
 			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "] "
+					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
@@ -156,11 +156,11 @@ namespace gutil {
 			std::lock_guard<std::mutex> lock(mtx);
 			#ifdef _OPENMP
 			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "] "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
 			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "] "
+					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "]\t"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
