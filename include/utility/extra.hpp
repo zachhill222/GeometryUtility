@@ -11,11 +11,13 @@
 #include <thread>
 #include <iomanip>
 #include <sstream>
-#include <source_location>
 
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+
+#define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
+#define GUTIL_ERROR(...) gutil::Logger::error_impl(__FILE__, __LINE__, __VA_ARGS__)
 
 namespace gutil {
 	template<typename T>
@@ -95,11 +97,11 @@ namespace gutil {
 
 			#ifdef _OPENMP
 			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]\t[" << __FILE__ << " : " << __LINE__ << "]\t"
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
 			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "]\t[" << __FILE__ << " : " << __LINE__ << "]\t"
+					<< "thread=" << std::this_thread::get_id() << "]"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
@@ -113,12 +115,62 @@ namespace gutil {
 
 			std::lock_guard<std::mutex> lock(mtx);
 			#ifdef _OPENMP
-			*err   << "ERROR\t[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
-					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]\t[" << __FILE__ << " : " << __LINE__ << "]\t"
+			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "]"
 					<< (gutil::to_string(args) + ...) << "\n";
 			#else
-			*err   << "ERROR\t[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
-					<< "thread=" << std::this_thread::get_id() << "]\t[" << __FILE__ << " : " << __LINE__ << "]\t"
+			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
+					<< "thread=" << std::this_thread::get_id() << "]"
+					<< (gutil::to_string(args) + ...) << "\n";
+			#endif
+
+			err -> flush();
+		}
+
+		//starting time of the program, sychronization mutex, and output stream
+		static inline std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+		static inline std::mutex mtx{};
+		static inline std::ostream* out = &std::cout;
+		static inline std::ostream* err = &std::cerr;
+
+		//change the output stream
+		static void set_output(std::ostream& os) {out = &os;}
+		static void set_error(std::ostream& os) {err = &os;}
+
+		//write to the ouput stream (thread safe)
+		template<typename... Ts>
+		static void log_impl(const char* file, int line, const Ts&... args) {
+			const auto now = std::chrono::steady_clock::now();
+			const double elapsed = std::chrono::duration<double>(now - start_time).count();
+
+			std::lock_guard<std::mutex> lock(mtx);
+
+			#ifdef _OPENMP
+			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "] "
+					<< (gutil::to_string(args) + ...) << "\n";
+			#else
+			*out   << "[t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
+					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "] "
+					<< (gutil::to_string(args) + ...) << "\n";
+			#endif
+
+			out -> flush();
+		}
+
+		template<typename... Ts>
+		static void error_impl(const char* file, int line, const Ts&... args) {
+			const auto now = std::chrono::steady_clock::now();
+			const double elapsed = std::chrono::duration<double>(now - start_time).count();
+
+			std::lock_guard<std::mutex> lock(mtx);
+			#ifdef _OPENMP
+			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | "
+					"thread=" << std::this_thread::get_id() << ", " << "omp_thread=" << omp_get_thread_num() << "] [" << file << " : " << line << "] "
+					<< (gutil::to_string(args) + ...) << "\n";
+			#else
+			*err   << "ERROR [t=" << std::fixed << std::setprecision(4) << elapsed << "s | " 
+					<< "thread=" << std::this_thread::get_id() << "] [" << file << " : " << line << "] "
 					<< (gutil::to_string(args) + ...) << "\n";
 			#endif
 
