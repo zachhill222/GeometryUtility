@@ -29,7 +29,6 @@ else
 endif
 
 #link to libraries
-LIBS = -lstdc++exp
 ifdef OMP
 	LIBS += -fopenmp
 endif

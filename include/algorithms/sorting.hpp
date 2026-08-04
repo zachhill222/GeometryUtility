@@ -40,14 +40,14 @@ namespace gutil
 		BinSort& operator=(BinSort&&) = default;
 		
 		template<typename I>
-		BinSort(I begin, I end, int8_t N) : n_bins_{N}, data{begin, end}, bins(N+1) {}
+		BinSort(I begin, I end, int8_t N) : BinSort{std::span<T>{begin, end}, N} {}
 		
 		template<typename I>
-		BinSort(I begin, size_t len, int8_t N) : n_bins_{N}, data{begin, len}, bins(N+1) {}
+		BinSort(I begin, size_t len, int8_t N) : BinSort{std::span<T>{begin, begin+len}, N} {}
 
-		BinSort(std::vector<T>& data_, int8_t N) : n_bins_{N}, data{data_.begin(), data_.end()}, bins(N+1) {}
+		BinSort(std::vector<T>& data, int8_t N) : BinSort{std::span<T>{data.begin(), data.end()}, N} {}
 
-		BinSort(std::span<T> data_, int8_t N) : n_bins_{N}, data(data_), bins(N+1) {
+		BinSort(std::span<T> data, int8_t N) : n_bins_{N}, data(data), bins(N+1) {
 			GUTIL_ASSERT(N>0);
 			n_bits_ = std::bit_width(static_cast<uint>(N-1));
 		}
