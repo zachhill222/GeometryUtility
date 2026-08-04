@@ -27,10 +27,10 @@ namespace gutil
 		std::vector<iterator_type> 	bins{};
 		ThreadPool* 				threads{nullptr};	//allow parallel sorting if another class provides the resource
 
-		template<typename BinFun> requires(std::invocable_r_v<int8_t, BinFun, T>)
+		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
 		void recursive_partition_bit(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept;
 
-		template<typename BinFun> requires(std::invocable_r_v<int8_t, BinFun, T>)
+		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
 		void recursive_partition_bit_parallel(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept;
 	public:
 		BinSort() = default;
@@ -64,7 +64,7 @@ namespace gutil
 		}
 
 		/// Primary call (pass the full predicate to bin number)
-		template<typename BinFun> requires(std::invocable_r_v<int8_t, BinFun, T>)
+		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
 		void sort(BinFun&& bin_fun) {
 			//note std::bit_width requires an unsigned integer
 			//if there are N bins, then bins.size() = N+1, the max bin index is N-1,
@@ -80,7 +80,7 @@ namespace gutil
 		}
 
 		/// Primary call (pass the full predicate to bin number)
-		template<typename BinFun> requires(std::invocable_r_v<int8_t, BinFun, T>)
+		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
 		void dispatch_sort(BinFun&& bin_fun, ThreadPool* tp) {
 			threads = tp;
 			if (threads) {
@@ -120,7 +120,7 @@ namespace gutil
 	};
 
 	template<typename T>
-	template<typename BinFun>
+	template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
 	void BinSort<T>::recursive_partition_bit(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept {
 		if (bit<0) {
 			GUTIL_ASSERT(0<=bin && bin<=n_bins_);
@@ -148,7 +148,7 @@ namespace gutil
 	}
 
 	template<typename T>
-	template<typename BinFun>
+	template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
 	void BinSort<T>::recursive_partition_bit_parallel(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept {
 		GUTIL_ASSERT(threads && threads->n_threads()>0);
 
