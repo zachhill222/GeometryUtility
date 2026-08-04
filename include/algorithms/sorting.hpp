@@ -22,7 +22,7 @@ namespace gutil
 		using iterator_type = typename std::span<T>::iterator;
 		
 		int 						n_bins_{-1};
-		int 						n_bits{-1};
+		int 						n_bits_{-1};
 		std::span<T> 				data{};
 		std::vector<iterator_type> 	bins{};
 		ThreadPool* 				threads{nullptr};	//allow parallel sorting if another class provides the resource
@@ -49,12 +49,19 @@ namespace gutil
 
 		BinSort(std::span<T> data_, int N) : n_bins_{N}, data(data_), bins(N+1) {
 			GUTIL_ASSERT(N>0);
-			n_bits = std::bit_width(static_cast<uint>(N-1));
+			n_bits_ = std::bit_width(static_cast<uint>(N-1));
 		}
-
 
 		[[nodiscard]] bool empty() const noexcept { return data.empty(); }
 		[[nodiscard]] size_t n_bins() const noexcept { return static_cast<size_t>(n_bins_); }
+
+		void clear() noexcept {
+			data = std::span<T>{};
+			n_bins_ = -1;
+			n_bits_ = -1;
+			ThreadPool = nullptr;
+			bins.clear();
+		}
 
 		/// Primary call (pass the full predicate to bin number)
 		template<typename Predicate>
@@ -65,10 +72,10 @@ namespace gutil
 			if (threads) {
 				//note this thread will be the primary thread and not return until the sort is finished.
 				//this way threads.wait_idle() doesn't have to be called from here.
-				recursive_partition_bit_parallel(data, n_bits-1, 0, std::forward<Predicate>(int_pred));
+				recursive_partition_bit_parallel(data, n_bits_-1, 0, std::forward<Predicate>(int_pred));
 			}
 			else {
-				recursive_partition_bit(data, n_bits-1, 0, std::forward<Predicate>(int_pred));
+				recursive_partition_bit(data, n_bits_-1, 0, std::forward<Predicate>(int_pred));
 			}
 		}
 
@@ -77,10 +84,10 @@ namespace gutil
 		void dispatch_sort(Predicate&& int_pred, ThreadPool* tp) {
 			threads = tp;
 			if (threads) {
-				recursive_partition_bit_parallel(data, n_bits-1, 0, std::forward<Predicate>(int_pred));
+				recursive_partition_bit_parallel(data, n_bits_-1, 0, std::forward<Predicate>(int_pred));
 			}
 			else {
-				recursive_partition_bit(data, n_bits-1, 0, std::forward<Predicate>(int_pred));
+				recursive_partition_bit(data, n_bits_-1, 0, std::forward<Predicate>(int_pred));
 			}
 		}
 
