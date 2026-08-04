@@ -215,41 +215,41 @@ namespace gutil {
 	///////////////// SIMPLE SCALAR ROUTINES //////////////////
 	///////////////////////////////////////////////////////////
 	GUTIL_DECLARE_SIMD()
-	template<IsScalar T>
+	template<typename T>
 	[[nodiscard]] inline constexpr T max(T x, T y) noexcept {
 		return x > y ? x : y;
 	}
 
-	template<IsScalar T, typename... Ts> requires (std::same_as<T,Ts> && ...)
+	template<typename T, typename... Ts> requires (std::same_as<T,Ts> && ...)
 	[[nodiscard]] inline constexpr T max(T x, T y, Ts... rest) noexcept {
 		return gutil::max( gutil::max(x,y), rest... );
 	}
 
 	GUTIL_DECLARE_SIMD()
-	template<IsScalar T>
+	template<typename T>
 	[[nodiscard]] inline constexpr T min(T x, T y) noexcept {
 		return x < y ? x : y;
 	}
 
-	template<IsScalar T, typename... Ts> requires (std::same_as<T,Ts> && ...)
+	template<typename T, typename... Ts> requires (std::same_as<T,Ts> && ...)
 	[[nodiscard]] inline constexpr T min(T x, T y, Ts... rest) noexcept {
 		return gutil::min( gutil::min(x,y), rest... );
 	}
 
 	GUTIL_DECLARE_SIMD()
-	template<IsScalar T>
+	template<typename T>
 	[[nodiscard]] inline constexpr T abs(T x) noexcept {
 		return x < T{0} ? -x : x;
 	}
 
 	GUTIL_DECLARE_SIMD()
-	template<IsScalar T>
+	template<typename T>
 	[[nodiscard]] inline constexpr T clamp(T x, T lo, T hi) noexcept {
 		return x < lo ? lo : (x > hi ? hi : x);
 	}
 
 	GUTIL_DECLARE_SIMD()
-	template<IsScalar T>
+	template<typename T>
 	[[nodiscard]] inline constexpr T clamp_periodic(T x, T lo, T hi) noexcept {
 		return lo + gutil::fmod(x-lo, hi-lo);
 	}

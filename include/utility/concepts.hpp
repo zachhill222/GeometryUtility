@@ -34,6 +34,7 @@ namespace gutil
 		{ a<b   } -> std::same_as<bool>;
 	};
 
+
 	///////////////////////////////////////////////////////////
 	/// For some algorithms, we need to know if a scalar type
 	/// is exact, integer, etc. Additionally, values like epsilon, max, lower, etc
