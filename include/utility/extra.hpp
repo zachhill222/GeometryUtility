@@ -20,7 +20,7 @@
 //////////////////////////////////////////////////////
 /// Enable/disable some profiling tools
 //////////////////////////////////////////////////////
-#ifdef GV_PROFILE
+#ifdef PROFILE
 	#define GUTIL_PROFILE(...) __VA_ARGS__
 	#define GUTIL_PROFILE_TIMER(...) GUTIL_TIMER(__VA_ARGS__)
 #else
@@ -28,23 +28,10 @@
 	#define GUTIL_PROFILE_TIMER(...)
 #endif
 
-#ifndef GV_DISABLE_LOG
-	#define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
-#else
-	#define GUTIL_LOG(...)
-#endif
+#define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
+#define GUTIL_ERROR(...) gutil::Logger::error_impl(__FILE__, __LINE__, __VA_ARGS__)
+#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer(__FILE__, __LINE__, __VA_ARGS__)
 
-#ifndef GV_DISABLE_ERROR
-	#define GUTIL_ERROR(...) gutil::Logger::error_impl(__FILE__, __LINE__, __VA_ARGS__)
-#else
-	#define GUTIL_ERROR(...)
-#endif
-
-#ifndef GV_DISABLE_TIMER
-	#define GUTIL_TIMER(...) gutil::LogTime GUTIL_CONCAT(gutil_macro_timer_,__COUNTER__){__FILE__, __LINE__, __VA_ARGS__}
-#else
-	#define GUTIL_TIMER(...)
-#endif
 
 
 namespace gutil {
@@ -207,23 +194,27 @@ namespace gutil {
 		int line = -1;
 
 		template<typename... Ts>
-		explicit LogTime(const Ts&... args) : label{(gutil::to_string(args) + ...)}, mark_start{std::chrono::steady_clock::now()} {}
+		explicit LogTime(const Ts&... args) : label{(gutil::to_string(args) + ...)}, mark_start{std::chrono::steady_clock::now()} {
+			Logger::log("START ", label);
+		}
 
 		template<typename... Ts>
 		explicit LogTime(const char* file, int line, const Ts&... args) : 
 			label{(gutil::to_string(args) + ...)}, 
 			mark_start{std::chrono::steady_clock::now()},
 			file{file},
-			line{line} {}
+			line{line} {
+				Logger::log_impl(file, line, "START ", label);
+			}
 
 		~LogTime() {
 			const auto now = std::chrono::steady_clock::now();
 			const double elapsed = std::chrono::duration<double>(now - mark_start).count();
 			if (file) {
-				Logger::log_impl(file, line, label + " : " + std::to_string(elapsed) + "s");
+				Logger::log_impl(file, line, "END   " + label + " : " + std::to_string(elapsed) + "s");
 			}
 			else {
-				Logger::log(label + " : " + std::to_string(elapsed) + "s");
+				Logger::log("END   " + label + " : " + std::to_string(elapsed) + "s");
 			}
 
 		}
