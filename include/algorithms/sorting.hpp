@@ -59,7 +59,7 @@ namespace gutil
 			data = std::span<T>{};
 			n_bins_ = -1;
 			n_bits_ = -1;
-			ThreadPool = nullptr;
+			threads = nullptr;
 			bins.clear();
 		}
 
