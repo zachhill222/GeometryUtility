@@ -11,7 +11,7 @@ namespace gutil
 {
 	//////////////////////////////////////////////////////////
 	/// A class for partitioning data in-place. A predicate of the type
-	/// pred(value) -> int8_t must be supplied with the return value (the 'bin')
+	/// pred(value) -> int must be supplied with the return value (the 'bin')
 	/// a number in [0,N). The algorithm uses divide-and-conquer
 	/// by splitting the data into left/right partitions for each bit
 	/// in the bin. An internal state is kept to more easily extract subspans.
@@ -21,17 +21,17 @@ namespace gutil
 	private:
 		using iterator_type = typename std::span<T>::iterator;
 		
-		int8_t 						n_bins_{-1};
-		int8_t 						n_bits_{-1};
+		int 						n_bins_{-1};
+		int 						n_bits_{-1};
 		std::span<T> 				data{};
 		std::vector<iterator_type> 	bins{};
 		ThreadPool* 				threads{nullptr};	//allow parallel sorting if another class provides the resource
 
-		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
-		void recursive_partition_bit(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept;
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
+		void recursive_partition_bit(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept;
 
-		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
-		void recursive_partition_bit_parallel(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept;
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
+		void recursive_partition_bit_parallel(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept;
 	public:
 		BinSort() = default;
 		BinSort(const BinSort&) = default;
@@ -40,14 +40,14 @@ namespace gutil
 		BinSort& operator=(BinSort&&) = default;
 		
 		template<typename I>
-		BinSort(I begin, I end, int8_t N) : BinSort{std::span<T>{begin, end}, N} {}
+		BinSort(I begin, I end, int N) : BinSort{std::span<T>{begin, end}, N} {}
 		
 		template<typename I>
-		BinSort(I begin, size_t len, int8_t N) : BinSort{std::span<T>{begin, begin+len}, N} {}
+		BinSort(I begin, size_t len, int N) : BinSort{std::span<T>{begin, begin+len}, N} {}
 
-		BinSort(std::vector<T>& data, int8_t N) : BinSort{std::span<T>{data.begin(), data.end()}, N} {}
+		BinSort(std::vector<T>& data, int N) : BinSort{std::span<T>{data.begin(), data.end()}, N} {}
 
-		BinSort(std::span<T> data, int8_t N) : n_bins_{N}, data(data), bins(N+1) {
+		BinSort(std::span<T> data, int N) : n_bins_{N}, data(data), bins(N+1) {
 			GUTIL_ASSERT(N>0);
 			n_bits_ = std::bit_width(static_cast<uint>(N-1));
 		}
@@ -64,7 +64,7 @@ namespace gutil
 		}
 
 		/// Primary call (pass the full predicate to bin number)
-		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
 		void sort(BinFun&& bin_fun) {
 			//note std::bit_width requires an unsigned integer
 			//if there are N bins, then bins.size() = N+1, the max bin index is N-1,
@@ -80,7 +80,7 @@ namespace gutil
 		}
 
 		/// Primary call (pass the full predicate to bin number)
-		template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
 		void dispatch_sort(BinFun&& bin_fun, ThreadPool* tp) {
 			threads = tp;
 			if (threads) {
