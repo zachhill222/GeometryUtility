@@ -177,6 +177,9 @@ namespace gutil {
 				construct_root(box_type{std::forward<Args>(args)...});
 			}
 
+		~BaseOctree() {
+			destroy_root();
+		}
 
 		////////////////////////////////////////////////////////////////
 		/// Public interface to access the data
