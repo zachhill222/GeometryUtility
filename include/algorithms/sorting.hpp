@@ -94,25 +94,25 @@ namespace gutil
 
 
 		/// Once sorted, get a subspan into the requested bin
-		[[nodiscard]] std::span<T> get_bin(int8_t i) const noexcept {
+		[[nodiscard]] std::span<T> get_bin(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			return std::span<T>{bins[i], bins[i+1]};
 		}
 
-		[[nodiscard]] size_t bin_size(int8_t i) const noexcept {
+		[[nodiscard]] size_t bin_size(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[i],bins[i+1]));
 		}
 
-		[[nodiscard]] size_t bin_start(int8_t i) const noexcept {
+		[[nodiscard]] size_t bin_start(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[0], bins[i]));
 		}
 
-		[[nodiscard]] size_t bin_end(int8_t i) const noexcept {
+		[[nodiscard]] size_t bin_end(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[0], bins[i+1]));
@@ -120,8 +120,8 @@ namespace gutil
 	};
 
 	template<typename T>
-	template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
-	void BinSort<T>::recursive_partition_bit(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept {
+	template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
+	void BinSort<T>::recursive_partition_bit(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept {
 		if (bit<0) {
 			GUTIL_ASSERT(0<=bin && bin<=n_bins_);
 			bins[bin] = data.begin();
@@ -131,12 +131,12 @@ namespace gutil
 
 		//construct the bool predicate and partition. note that because we wish to sort by
 		//increasing bin number, the bit-check must be negated when passing to std::partition
-		const int8_t mask = int8_t{1} << bit;
+		const int mask = int{1} << bit;
 		auto bool_pred = [&bin_fun, mask](const T& val) {GUTIL_ASSERT(bin_fun(val)>=0); return !(bool)(bin_fun(val) & mask);};
 		iterator_type mid = std::partition(data.begin(), data.end(), bool_pred);
 
-		const int8_t left_bin = bin;
-		const int8_t right_bin = bin | (int8_t{1} << bit);
+		const int left_bin = bin;
+		const int right_bin = bin | (int{1} << bit);
 
 		if (left_bin < n_bins_) {
 			recursive_partition_bit(std::span<T>{data.begin(), mid}, bit-1, left_bin, bin_fun);
@@ -148,8 +148,8 @@ namespace gutil
 	}
 
 	template<typename T>
-	template<typename BinFun> requires(std::is_invocable_r_v<int8_t, BinFun, T>)
-	void BinSort<T>::recursive_partition_bit_parallel(std::span<T> data, int8_t bit, int8_t bin, BinFun&& bin_fun) noexcept {
+	template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
+	void BinSort<T>::recursive_partition_bit_parallel(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept {
 		GUTIL_ASSERT(threads && threads->n_threads()>0);
 
 		if (bit<0) {
@@ -161,15 +161,15 @@ namespace gutil
 
 		//construct the bool predicate and partition. note that because we wish to sort by
 		//increasing bin number, the bit-check must be negated when passing to std::partition
-		const int8_t mask = int8_t{1} << bit;
+		const int mask = int{1} << bit;
 		auto bool_pred = [&bin_fun, mask](const T& val) {GUTIL_ASSERT(bin_fun(val)>=0); return !(bool)(bin_fun(val) & mask);};
 		iterator_type mid = std::partition(data.begin(), data.end(), bool_pred);
 
-		const int8_t left_bin = bin;
-		const int8_t right_bin = bin | (int8_t{1} << bit);
+		const int left_bin = bin;
+		const int right_bin = bin | (int{1} << bit);
 
 		if (left_bin < n_bins_) {
-			threads->submit( [&](std::span<T> d, int8_t bt, int8_t bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(d,bt,bn,pred);},
+			threads->submit( [&](std::span<T> d, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(d,bt,bn,pred);},
 						std::span<T>{data.begin(), mid}, bit-1, left_bin, bin_fun );
 		}
 		
