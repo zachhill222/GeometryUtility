@@ -94,7 +94,13 @@ namespace gutil
 
 
 		/// Once sorted, get a subspan into the requested bin
-		[[nodiscard]] std::span<T> get_bin(int i) const noexcept {
+		[[nodiscard]] std::span<const T> get_bin(int i) const noexcept {
+			GUTIL_ASSERT(0<=i && i<n_bins_);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
+			return std::span<T>{bins[i], bins[i+1]};
+		}
+
+		[[nodiscard]] std::span<T> get_bin(int i) noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			return std::span<T>{bins[i], bins[i+1]};

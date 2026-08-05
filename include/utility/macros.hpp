@@ -51,10 +51,12 @@
 	#define GUTIL_OMP(...) GUTIL_PRAGMA(omp __VA_ARGS__)
 	#define GUTIL_SIMD(...) GUTIL_PRAGMA(omp simd __VA_ARGS__)
 	#define GUTIL_DECLARE_SIMD(...) GUTIL_PRAGMA(omp declare simd __VA_ARGS__)
+	#define GUTIL_OMP_TERNARY(arg_if_omp, arg_if_no_omp) arg_if_omp
 #else
 	#define GUTIL_OMP(...)
 	#define GUTIL_SIMD(...)
 	#define GUTIL_DECLARE_SIMD(...)
+	#define GUTIL_OMP_TERNARY(arg_if_omp, arg_if_no_omp) arg_if_no_omp
 #endif
 
 
