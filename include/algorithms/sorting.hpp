@@ -19,8 +19,9 @@ namespace gutil
 	template<typename T>
 	struct BinSort {
 	private:
-		using iterator_type = typename std::span<T>::iterator;
-		
+		using iterator_type 		= typename std::span<T>::iterator;
+		using const_iterator_type 	= typename std::span<const T>::iterator;
+
 		int 						n_bins_{-1};
 		int 						n_bits_{-1};
 		std::span<T> 				data{};
@@ -122,6 +123,30 @@ namespace gutil
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			return static_cast<size_t>(std::distance(bins[0], bins[i+1]));
+		}
+
+		[[nodiscard]] iterator_type begin(int i) noexcept {
+			GUTIL_ASSERT(0<=i && i<n_bins_);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
+			return bins[i];
+		}
+
+		[[nodiscard]] iterator_type end(int i) noexcept {
+			GUTIL_ASSERT(0<=i && i<n_bins_);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
+			return bins[i+1];
+		}
+
+		[[nodiscard]] const_iterator_type begin(int i) const noexcept {
+			GUTIL_ASSERT(0<=i && i<n_bins_);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
+			return const_iterator_type{(data.data() + bin_start(i))};
+		}
+
+		[[nodiscard]] const_iterator_type end(int i) const noexcept {
+			GUTIL_ASSERT(0<=i && i<n_bins_);
+			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
+			return const_iterator_type{(data.data() + bin_end(i))};
 		}
 	};
 
