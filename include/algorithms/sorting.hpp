@@ -40,20 +40,20 @@ namespace gutil
 		BinSort& operator=(BinSort&&) = default;
 		
 		template<typename I>
-		BinSort(I begin, I end, int N) : BinSort{std::span<T>{begin, end}, N} {}
+		BinSort(I begin, I end, int N) : BinSort(std::span<T>{begin, end}, N) {}
 		
 		template<typename I>
-		BinSort(I begin, size_t len, int N) : BinSort{std::span<T>{begin, begin+len}, N} {}
+		BinSort(I begin, size_t len, int N) : BinSort(std::span<T>{begin, begin+len}, N) {}
 
-		BinSort(std::vector<T>& data, int N) : BinSort{std::span<T>{data.begin(), data.end()}, N} {}
+		BinSort(std::vector<T>& data, int N) : BinSort(std::span<T>{data.begin(), data.end()}, N) {}
 
-		BinSort(std::span<T> data, int N) : n_bins_{N}, data(data), bins(N+1) {
+		BinSort(std::span<T> data, int N) : n_bins_(N), data(data), bins(N+1) {
 			GUTIL_ASSERT(N>0);
 			n_bits_ = std::bit_width(static_cast<uint>(N-1));
 		}
 
 		[[nodiscard]] bool empty() const noexcept { return data.empty(); }
-		[[nodiscard]] size_t n_bins() const noexcept { return static_cast<size_t>(n_bins_); }
+		[[nodiscard]] int n_bins() const noexcept { return n_bins_; }
 
 		void clear() noexcept {
 			data = std::span<T>{};
