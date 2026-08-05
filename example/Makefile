@@ -7,7 +7,7 @@ CXX     = g++ -std=c++23
 CXX    += -fsanitize=thread
 
 #explicit defines
-DEFINES = 
+DEFINES = -DGUTIL_ENABLE_THREAD_POOL
 ifdef TEST_DIM
 	DEFINES += -DTEST_DIM=$(TEST_DIM)
 endif

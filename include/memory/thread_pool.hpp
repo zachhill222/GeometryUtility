@@ -59,7 +59,7 @@ namespace gutil {
 				return;
 			#else
 
-			if (n_threads==0) {
+			if (n_threads()==0) {
 				if constexpr (PASS_THREAD_NUM) { f(0, std::forward<Args>(args)...); return;}
 				else {f(std::forward<Args>(args)...); return;}
 			}
