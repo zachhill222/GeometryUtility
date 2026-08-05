@@ -3,8 +3,8 @@ INCLUDE = -I../include
 
 #default build (debug)
 CXX     = g++ -std=c++23
-CXX    += -fsanitize=address
-# CXX    += -fsanitize=thread
+# CXX    += -fsanitize=address
+CXX    += -fsanitize=thread
 
 #explicit defines
 DEFINES = 

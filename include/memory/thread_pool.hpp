@@ -8,12 +8,17 @@
 #include <queue>
 #include <condition_variable>
 
+
+// define GUTIL_ENABLE_THREAD_POOL at compile time to enable the thread pool
+// actually doing anthing
+
+
 namespace gutil {
 	
 	struct ThreadPool {
 		/// On construction, prepare the worker threads
 		explicit ThreadPool(size_t n_threads = std::thread::hardware_concurrency()) {
-			if (n_threads==0) {n_threads=1;}	//always have at least one thread
+			// if (n_threads==0) {n_threads=1;}	//always have at least one thread
 			workers_.reserve(n_threads);
 			for (size_t i=0; i<n_threads; ++i) {
 				workers_.emplace_back([this, i]() { worker_loop(static_cast<int>(i)); });
@@ -39,16 +44,28 @@ namespace gutil {
 		/// Allow an external thread to dispatch work to the pool
 		template<typename FunctionType, typename... Args>
 		void submit(FunctionType&& f, Args&&... args) {
+			//determine if the function need the thread number
+			constexpr bool PASS_THREAD_NUM = std::is_invocable_v<std::decay_t<FunctionType>, int, std::decay_t<Args>...>;
+
+
+			//put task onto the queue, note that args are generally copied into different threads.
+			static_assert(PASS_THREAD_NUM || std::is_invocable_v<std::decay_t<FunctionType>, std::decay_t<Args>...>,
+				"submit: callable must be invocable with decayed (by-value) argument types -- "
+				"wrap in std::ref() or capture as a reference in the lambda if the task needs to mutate a caller-scope variable.");
+			
+			#ifndef GUTIL_ENABLE_THREAD_POOL
+				if constexpr (PASS_THREAD_NUM) { f(0, std::forward<Args>(args)...);}
+				else {f(std::forward<Args>(args)...);}
+				return;
+			#else
+
+			if (n_threads==0) {
+				if constexpr (PASS_THREAD_NUM) { f(0, std::forward<Args>(args)...); return;}
+				else {f(std::forward<Args>(args)...); return;}
+			}
+
 			++outstanding_;
 			{
-				//determine if the function need the thread number
-				constexpr bool PASS_THREAD_NUM = std::is_invocable_v<std::decay_t<FunctionType>, int, std::decay_t<Args>...>;
-
-
-				//put task onto the queue, note that args are generally copied into different threads.
-				static_assert(PASS_THREAD_NUM || std::is_invocable_v<std::decay_t<FunctionType>, std::decay_t<Args>...>,
-					"submit: callable must be invocable with decayed (by-value) argument types -- "
-					"wrap in std::ref() or capture as a reference in the lambda if the task needs to mutate a caller-scope variable.");
 
 				if constexpr (PASS_THREAD_NUM) {
 					auto packed_function = [this, f = std::forward<FunctionType>(f), ...args = std::forward<Args>(args)](int thread_number) mutable {
@@ -76,6 +93,7 @@ namespace gutil {
 				}
 			}
 			cv_.notify_one();
+			#endif
 		}
 
 		/// Allow the calling thread to wait until all tasks are done
