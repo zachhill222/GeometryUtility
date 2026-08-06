@@ -9,8 +9,9 @@
 #include <condition_variable>
 
 
-// define GUTIL_ENABLE_THREAD_POOL at compile time to enable the thread pool
-// actually doing anthing
+// define GUTIL_DISABLE_THREAD_POOL at compile time to run tasks
+// submitted to the pool immediately by the submitting thread
+// this can be helpful for debugging
 
 
 namespace gutil {
@@ -53,7 +54,7 @@ namespace gutil {
 				"submit: callable must be invocable with decayed (by-value) argument types -- "
 				"wrap in std::ref() or capture as a reference in the lambda if the task needs to mutate a caller-scope variable.");
 			
-			#ifndef GUTIL_ENABLE_THREAD_POOL
+			#ifdef GUTIL_DISABLE_THREAD_POOL
 				if constexpr (PASS_THREAD_NUM) { f(0, std::forward<Args>(args)...);}
 				else {f(std::forward<Args>(args)...);}
 				return;
