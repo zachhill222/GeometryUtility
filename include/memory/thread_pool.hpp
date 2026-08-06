@@ -19,11 +19,14 @@ namespace gutil {
 	struct ThreadPool {
 		/// On construction, prepare the worker threads
 		explicit ThreadPool(size_t n_threads = std::thread::hardware_concurrency()) {
-			// if (n_threads==0) {n_threads=1;}	//always have at least one thread
+			#ifndef GUTIL_DISABLE_THREAD_POOL
 			workers_.reserve(n_threads);
 			for (size_t i=0; i<n_threads; ++i) {
 				workers_.emplace_back([this, i]() { worker_loop(static_cast<int>(i)); });
 			}
+			#else
+			GUTIL_LOG("Using gutil::ThreadPool at ", this, " as a single thread");
+			#endif
 		}
 
 		/// On destruction, wait for all tasks to end and join the worker threads
