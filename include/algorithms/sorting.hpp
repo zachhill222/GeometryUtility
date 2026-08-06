@@ -22,17 +22,17 @@ namespace gutil
 		using iterator_type 		= typename std::span<T>::iterator;
 		using const_iterator_type 	= typename std::span<const T>::iterator;
 
-		int 						n_bins_{-1};
-		int 						n_bits_{-1};
-		std::span<T> 				data{};
-		std::vector<iterator_type> 	bins{};
-		ThreadPool* 				threads{nullptr};	//allow parallel sorting if another class provides the resource
+		int 					n_bins_{-1};
+		int 					n_bits_{-1};
+		std::span<T> 			data{};
+		std::vector<size_t>		bins{};
+		ThreadPool* 			threads{nullptr};	//allow parallel sorting if another class provides the resource
 
 		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
-		void recursive_partition_bit(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept;
+		void recursive_partition_bit(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept;
 
 		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
-		void recursive_partition_bit_parallel(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept;
+		void recursive_partition_bit_parallel(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept;
 	public:
 		BinSort() = default;
 		BinSort(const BinSort&) = default;
@@ -51,6 +51,7 @@ namespace gutil
 		BinSort(std::span<T> data, int N) : n_bins_(N), data(data), bins(N+1) {
 			GUTIL_ASSERT(N>0);
 			n_bits_ = std::bit_width(static_cast<uint>(N-1));
+			bins[N] = data.size();
 		}
 
 		[[nodiscard]] bool empty() const noexcept { return data.empty(); }
@@ -73,10 +74,10 @@ namespace gutil
 			if (threads) {
 				//note this thread will be the primary thread and not return until the sort is finished.
 				//this way threads.wait_idle() doesn't have to be called from here.
-				recursive_partition_bit_parallel(data, n_bits_-1, 0, std::forward<BinFun>(bin_fun));
+				recursive_partition_bit_parallel(0, data.size(), n_bits_-1, 0, std::forward<BinFun>(bin_fun));
 			}
 			else {
-				recursive_partition_bit(data, n_bits_-1, 0, std::forward<BinFun>(bin_fun));
+				recursive_partition_bit(0, data.size(), n_bits_-1, 0, std::forward<BinFun>(bin_fun));
 			}
 		}
 
@@ -85,10 +86,10 @@ namespace gutil
 		void dispatch_sort(BinFun&& bin_fun, ThreadPool* tp) {
 			threads = tp;
 			if (threads) {
-				recursive_partition_bit_parallel(data, n_bits_-1, 0, std::forward<BinFun>(bin_fun));
+				recursive_partition_bit_parallel(0, data.size(), n_bits_-1, 0, std::forward<BinFun>(bin_fun));
 			}
 			else {
-				recursive_partition_bit(data, n_bits_-1, 0, std::forward<BinFun>(bin_fun));
+				recursive_partition_bit(0, data.size(), n_bits_-1, 0, std::forward<BinFun>(bin_fun));
 			}
 		}
 
@@ -98,65 +99,69 @@ namespace gutil
 		[[nodiscard]] std::span<const T> get_bin(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return std::span<T>{bins[i], bins[i+1]};
+			GUTIL_ASSERT(bins[i+1]>=bins[i]);
+			return std::span<T>{data.begin()+bins[i], data.begin()+bins[i+1]};
 		}
 
 		[[nodiscard]] std::span<T> get_bin(int i) noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return std::span<T>{bins[i], bins[i+1]};
+			GUTIL_ASSERT(bins[i+1]>=bins[i]);
+			return std::span<T>{data.begin()+bins[i], data.begin()+bins[i+1]};
 		}
 
 		[[nodiscard]] size_t bin_size(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return static_cast<size_t>(std::distance(bins[i],bins[i+1]));
+			GUTIL_ASSERT(bins[i+1]>=bins[i]);
+			return static_cast<size_t>(bins[i+1]-bins[i]);
 		}
 
 		[[nodiscard]] size_t bin_start(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return static_cast<size_t>(std::distance(bins[0], bins[i]));
+			return bins[i];
 		}
 
 		[[nodiscard]] size_t bin_end(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return static_cast<size_t>(std::distance(bins[0], bins[i+1]));
+			return bins[i+1];
 		}
 
 		[[nodiscard]] iterator_type begin(int i) noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return bins[i];
+			return data.begin()+bins[i];
 		}
 
 		[[nodiscard]] iterator_type end(int i) noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return bins[i+1];
+			return data.begin()+bins[i+1];
 		}
 
 		[[nodiscard]] const_iterator_type begin(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return const_iterator_type{(data.data() + bin_start(i))};
+			return data.begin()+bins[i+1];
 		}
 
 		[[nodiscard]] const_iterator_type end(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return const_iterator_type{(data.data() + bin_end(i))};
+			return data.begin()+bins[i+1];
 		}
 	};
 
 	template<typename T>
 	template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
-	void BinSort<T>::recursive_partition_bit(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept {
+	void BinSort<T>::recursive_partition_bit(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept {
+		GUTIL_ASSERT(left<=right);
 		if (bit<0) {
 			GUTIL_ASSERT(0<=bin && bin<=n_bins_);
-			bins[bin] = data.begin();
-			bins[bin+1] = data.end();
+			bins[bin]   = left;
+			// bins[bin+1] = right;
 			return;
 		}
 
@@ -164,29 +169,30 @@ namespace gutil
 		//increasing bin number, the bit-check must be negated when passing to std::partition
 		const int mask = int{1} << bit;
 		auto bool_pred = [&bin_fun, mask](const T& val) {GUTIL_ASSERT(bin_fun(val)>=0); return !(bool)(bin_fun(val) & mask);};
-		iterator_type mid = std::partition(data.begin(), data.end(), bool_pred);
+		iterator_type it = std::partition(data.begin()+left, data.begin()+right, bool_pred);
+		size_t mid = static_cast<size_t>(std::distance(data.begin(), it));
 
-		const int left_bin = bin;
+		const int left_bin  = bin;
 		const int right_bin = bin | (int{1} << bit);
 
 		if (left_bin < n_bins_) {
-			recursive_partition_bit(std::span<T>{data.begin(), mid}, bit-1, left_bin, bin_fun);
+			recursive_partition_bit(left, mid, bit-1, left_bin, bin_fun);
 		}
 		
 		if (right_bin < n_bins_) {
-			recursive_partition_bit(std::span<T>{mid, data.end()}, bit-1, right_bin, std::forward<BinFun>(bin_fun));
+			recursive_partition_bit(mid, right, bit-1, right_bin, std::forward<BinFun>(bin_fun));
 		}
 	}
 
 	template<typename T>
 	template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
-	void BinSort<T>::recursive_partition_bit_parallel(std::span<T> data, int bit, int bin, BinFun&& bin_fun) noexcept {
-		GUTIL_ASSERT(threads && threads->n_threads()>0);
-
+	void BinSort<T>::recursive_partition_bit_parallel(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept {
+		GUTIL_ASSERT(threads);
+		GUTIL_ASSERT(left<=right);
 		if (bit<0) {
 			GUTIL_ASSERT(0<=bin && bin<=n_bins_);
-			bins[bin] = data.begin();
-			bins[bin+1] = data.end();
+			bins[bin]   = left;
+			// bins[bin+1] = right;
 			return;
 		}
 
@@ -194,18 +200,19 @@ namespace gutil
 		//increasing bin number, the bit-check must be negated when passing to std::partition
 		const int mask = int{1} << bit;
 		auto bool_pred = [&bin_fun, mask](const T& val) {GUTIL_ASSERT(bin_fun(val)>=0); return !(bool)(bin_fun(val) & mask);};
-		iterator_type mid = std::partition(data.begin(), data.end(), bool_pred);
+		iterator_type it = std::partition(data.begin()+left, data.begin()+right, bool_pred);
+		size_t mid = static_cast<size_t>(std::distance(data.begin(), it));
 
-		const int left_bin = bin;
+		const int left_bin  = bin;
 		const int right_bin = bin | (int{1} << bit);
 
 		if (left_bin < n_bins_) {
-			threads->submit( [&](std::span<T> d, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(d,bt,bn,pred);},
-						std::span<T>{data.begin(), mid}, bit-1, left_bin, bin_fun );
+			threads->submit( [&](size_t l, size_t r, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(l,r,bt,bn,pred);},
+						left, mid, bit-1, left_bin, bin_fun );
 		}
 		
 		if (right_bin < n_bins_) {
-			recursive_partition_bit_parallel(std::span<T>{mid, data.end()}, bit-1, right_bin, std::forward<BinFun>(bin_fun));
+			recursive_partition_bit_parallel(mid, right, bit-1, right_bin, std::forward<BinFun>(bin_fun));
 		}
 	}
 }
