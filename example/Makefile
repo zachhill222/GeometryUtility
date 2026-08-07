@@ -45,8 +45,8 @@ COMPILE = ${CC} ${INCLUDE} ${LIBS} ${DEFINES}
 point: FORCE
 	${COMPILE} point.cpp -o point
 
-point_parallel: FORCE
-	${COMPILE} point_parallel.cpp -o point_parallel
+sorting: FORCE
+	${COMPILE} sorting.cpp -o sorting
 
 point_octree: FORCE
 	${COMPILE} point_octree.cpp -o point_octree

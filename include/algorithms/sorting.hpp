@@ -9,6 +9,36 @@
 
 namespace gutil
 {
+
+
+	//////////////////////////////////////////////////////////
+	/// A few single threaded utility methods
+	//////////////////////////////////////////////////////////
+	template<std::contiguous_iterator I>
+	inline constexpr I sort_and_unique(I begin, I end) noexcept {
+		std::sort(begin, end);
+		return std::unique(begin, end);
+	}
+
+	template<typename Container> requires(std::contiguous_iterator<typename Container::iterator>)
+	inline constexpr auto sort_and_unique(Container& list) noexcept {
+		return sort_and_unique(list.begin(), list.end());
+	}
+
+	template<std::contiguous_iterator I, typename Less_t> requires(std::is_invocable_r_v<bool, Less_t, typename std::iter_value_t<I>, typename std::iter_value_t<I>>)
+	inline constexpr I sort_and_unique(I begin, I end, Less_t&& less) noexcept {
+		std::sort(begin, end, std::forward<Less_t>(less));
+		return std::unique(begin, end);
+	}
+
+	template<typename Container, typename Less_t> requires(std::contiguous_iterator<typename Container::iterator>
+										 && std::is_invocable_r_v<bool, Less_t, typename Container::value_type, typename Container::value_type>)
+	inline constexpr auto sort_and_unique(Container& list, Less_t&& less) noexcept {
+		return sort_and_unique(list.begin(), list.end(), std::forward<Less_t>(less));
+	}
+
+
+
 	//////////////////////////////////////////////////////////
 	/// A class for partitioning data in-place. A predicate of the type
 	/// pred(value) -> int must be supplied with the return value (the 'bin')
@@ -215,4 +245,74 @@ namespace gutil
 			recursive_partition_bit_parallel(mid, right, bit-1, right_bin, std::forward<BinFun>(bin_fun));
 		}
 	}
+
+
+
+	/////////////////////////////////////////////////////////////////////////////////////////////
+	/// Multi-threaded sort and unique functions
+	/////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename T>
+	[[maybe_unused]] inline void sort_and_unique_parallel_impl(size_t begin, size_t end, size_t& partition_index, T* const vals, ThreadPool& tp) {
+		GUTIL_ASSERT(vals);
+		GUTIL_ASSERT(end>=begin);
+		
+		const bool fork = (end-begin) > 4096;
+
+		if (fork) {
+			const size_t pivot = begin + (end-begin)/2;
+			
+			size_t left_idx, right_idx;
+			auto h = tp.submit([](size_t b, size_t e, size_t& idx, T* const v, ThreadPool& p){	
+				sort_and_unique_parallel_impl<T>(b,e,idx,v,p);
+			}, begin, pivot, std::ref(left_idx), vals, std::ref(tp));
+			
+			sort_and_unique_parallel_impl<T>(pivot,end,right_idx,vals,tp);
+			tp.wait_for(h);
+
+			//state of data
+			// 	vals	<---   begin -------- left_idx -------- pivot -------- right_idx -------- end
+			// 					  |     KEEP      |  MOVE TO END   |     KEEP       |  IN PLACE (DELETE)
+
+			size_t swap_size = right_idx - pivot;
+			for (size_t i=0; i<swap_size; ++i) {
+				std::swap(vals[pivot+i],vals[left_idx+i]);
+			}
+			
+			size_t reduced_end = left_idx + swap_size;	//right of this we know is bad
+			std::inplace_merge(vals+begin, vals+left_idx, vals+reduced_end);
+			//state of data
+			// begin -------- left_idx ----- reduced_end ----------- end
+			//   |     KEEP      |    UNKNOWN    |     IN PLACE (DELETE)
+
+			auto it = std::unique(vals+begin, vals+reduced_end);
+			partition_index = begin + static_cast<size_t>(std::distance(vals+begin, it));
+			return;
+		}
+		else {
+			std::sort(vals+begin, vals+end);
+			auto it = std::unique(vals+begin, vals+end);
+			partition_index = begin + static_cast<size_t>(std::distance(vals+begin,it));
+			return;
+		}
+	}
+
+
+	template<std::contiguous_iterator I>
+	I sort_and_unique(I begin, I end, ThreadPool& tp) {
+		size_t mid;
+		sort_and_unique_parallel_impl(0, std::distance(begin,end), mid, std::to_address(begin), tp);
+		return begin + mid;
+	}
+
+	template<typename Container> requires (std::contiguous_iterator<typename Container::iterator>)
+	typename Container::iterator sort_and_unique(Container& list, ThreadPool& tp) {
+		return sort_and_unique(list.begin(), list.end(), tp);
+	}
+
+
+
+
+
+
+
 }
