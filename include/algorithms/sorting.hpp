@@ -222,7 +222,6 @@ namespace gutil
 		if (bit<0) {
 			GUTIL_ASSERT(0<=bin && bin<=n_bins_);
 			bins[bin]   = left;
-			// bins[bin+1] = right;
 			return;
 		}
 
@@ -235,10 +234,16 @@ namespace gutil
 
 		const int left_bin  = bin;
 		const int right_bin = bin | (int{1} << bit);
+		const bool fork     = ((right-left) > 4096) && (threads->n_active_tasks()<threads->n_threads());
 
 		if (left_bin < n_bins_) {
-			threads->submit( [&](size_t l, size_t r, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(l,r,bt,bn,pred);},
-						left, mid, bit-1, left_bin, bin_fun );
+			if (fork) {
+				threads->submit( [&](size_t l, size_t r, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(l,r,bt,bn,pred);},
+							left, mid, bit-1, left_bin, bin_fun );
+			}
+			else {
+				recursive_partition_bit_parallel(left, mid, bit-1, left_bin, bin_fun);
+			}
 		}
 		
 		if (right_bin < n_bins_) {
@@ -256,7 +261,7 @@ namespace gutil
 		GUTIL_ASSERT(vals);
 		GUTIL_ASSERT(end>=begin);
 		
-		const bool fork = (end-begin) > 4096;
+		const bool fork = ((end-begin) > 4096) && (tp.n_active_tasks()<tp.n_threads());
 
 		if (fork) {
 			const size_t pivot = begin + (end-begin)/2;

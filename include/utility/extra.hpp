@@ -28,10 +28,24 @@
 	#define GUTIL_PROFILE_TIMER(...)
 #endif
 
-#define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
-#define GUTIL_ERROR(...) gutil::Logger::error_impl(__FILE__, __LINE__, __VA_ARGS__)
-#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer(__FILE__, __LINE__, __VA_ARGS__)
+#ifndef GUTIL_DISABLE_LOG
+	#define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
+#else
+	#define GUTIL_LOG(...)
+#endif
 
+#ifndef GUTIL_DISABLE_ERROR
+	#define GUTIL_ERROR(...) gutil::Logger::error_impl(__FILE__, __LINE__, __VA_ARGS__)
+#else
+	#define GUTIL_ERROR(...)
+#endif
+
+
+#ifndef GUTIL_DISABLE_TIMER
+	#define GUTIL_TIMER(...) gutil::LogTime gutil_macro_timer(__FILE__, __LINE__, __VA_ARGS__)
+#else
+	#define GUTIL_TIMER(...)
+#endif
 
 
 namespace gutil {

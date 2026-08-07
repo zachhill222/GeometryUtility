@@ -19,8 +19,8 @@ int main(int argc, char* argv[]) {
 		GUTIL_TIMER("Fill vectors");
 		for (size_t i=0; i<N; ++i) {
 			size_t r = dist(gen);
-			gutil_sort.push_back(r);
-			std_sort.push_back(r);
+			gutil_sort[i] = r;
+			std_sort[i] = r;
 		}
 	}
 
@@ -28,6 +28,7 @@ int main(int argc, char* argv[]) {
 		GUTIL_TIMER("Gutil sort");
 		auto it = gutil::sort_and_unique(gutil_sort, tp);
 		GUTIL_LOG("partition at ", std::distance(gutil_sort.begin(), it));
+		gutil_sort.erase(it, gutil_sort.end());
 	}
 
 	{
@@ -35,15 +36,26 @@ int main(int argc, char* argv[]) {
 		std::sort(std_sort.begin(), std_sort.end());
 		auto it = std::unique(std_sort.begin(), std_sort.end());
 		GUTIL_LOG("partition at ", std::distance(std_sort.begin(), it));
+		std_sort.erase(it, std_sort.end());
+	}
+	{
+		if (gutil_sort.size() != std_sort.size()) {
+			GUTIL_ERROR("Sizes mismatch: gutil=", gutil_sort.size(), " std=", std_sort.size());
+		}
 	}
 
 	{
 		GUTIL_TIMER("Verify results");
 		size_t count = 0;
-		for (size_t i=0; i<N; ++i) {
+		for (size_t i=0; i<gutil_sort.size(); ++i) {
 			if (gutil_sort[i]!=std_sort[i]) {++count;}
 		}
-		GUTIL_LOG("vectors differ in ", count, "/", N, " locations");
+		if (count>0) {
+			GUTIL_ERROR("vectors differ in ", count, "/", N, " locations");
+		}
+		else {
+			GUTIL_LOG("SUCCESS: vectors match");
+		}
 	}
 
 }
