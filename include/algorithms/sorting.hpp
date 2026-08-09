@@ -15,25 +15,25 @@ namespace gutil
 	/// A few single threaded utility methods
 	//////////////////////////////////////////////////////////
 	template<std::contiguous_iterator I>
-	inline constexpr I sort_and_unique(I begin, I end) noexcept {
+	[[nodiscard]] inline constexpr I sort_and_unique(I begin, I end) noexcept {
 		std::sort(begin, end);
 		return std::unique(begin, end);
 	}
 
 	template<typename Container> requires(std::contiguous_iterator<typename Container::iterator>)
-	inline constexpr auto sort_and_unique(Container& list) noexcept {
+	[[nodiscard]] inline constexpr auto sort_and_unique(Container& list) noexcept {
 		return sort_and_unique(list.begin(), list.end());
 	}
 
 	template<std::contiguous_iterator I, typename Less_t> requires(std::is_invocable_r_v<bool, Less_t, typename std::iter_value_t<I>, typename std::iter_value_t<I>>)
-	inline constexpr I sort_and_unique(I begin, I end, Less_t&& less) noexcept {
+	[[nodiscard]] inline constexpr I sort_and_unique(I begin, I end, Less_t&& less) noexcept {
 		std::sort(begin, end, std::forward<Less_t>(less));
 		return std::unique(begin, end);
 	}
 
 	template<typename Container, typename Less_t> requires(std::contiguous_iterator<typename Container::iterator>
 										 && std::is_invocable_r_v<bool, Less_t, typename Container::value_type, typename Container::value_type>)
-	inline constexpr auto sort_and_unique(Container& list, Less_t&& less) noexcept {
+	[[nodiscard]] inline constexpr auto sort_and_unique(Container& list, Less_t&& less) noexcept {
 		return sort_and_unique(list.begin(), list.end(), std::forward<Less_t>(less));
 	}
 
@@ -303,14 +303,14 @@ namespace gutil
 
 
 	template<std::contiguous_iterator I>
-	I sort_and_unique(I begin, I end, ThreadPool& tp) {
+	[[nodiscard]] I sort_and_unique(I begin, I end, ThreadPool& tp) {
 		size_t mid;
 		sort_and_unique_parallel_impl(0, std::distance(begin,end), mid, std::to_address(begin), tp);
 		return begin + mid;
 	}
 
 	template<typename Container> requires (std::contiguous_iterator<typename Container::iterator>)
-	typename Container::iterator sort_and_unique(Container& list, ThreadPool& tp) {
+	[[nodiscard]] typename Container::iterator sort_and_unique(Container& list, ThreadPool& tp) {
 		return sort_and_unique(list.begin(), list.end(), tp);
 	}
 
