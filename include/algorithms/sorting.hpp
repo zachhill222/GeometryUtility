@@ -130,7 +130,7 @@ namespace gutil
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
 			GUTIL_ASSERT(bins[i+1]>=bins[i]);
-			return std::span<T>{data.begin()+bins[i], data.begin()+bins[i+1]};
+			return std::span<const T>{data.begin()+bins[i], data.begin()+bins[i+1]};
 		}
 
 		[[nodiscard]] std::span<T> get_bin(int i) noexcept {

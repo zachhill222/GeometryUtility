@@ -21,11 +21,9 @@
 /// Enable/disable some profiling tools
 //////////////////////////////////////////////////////
 #ifdef PROFILE
-	#define GUTIL_PROFILE(...) __VA_ARGS__
-	#define GUTIL_PROFILE_TIMER(...) GUTIL_TIMER(__VA_ARGS__)
+	#define GUTIL_PROFILE(...) gutil::LogTime gutil_macro_profile_timer(__FILE__, __LINE__, "(prof) ", __VA_ARGS__)
 #else
 	#define GUTIL_PROFILE(...)
-	#define GUTIL_PROFILE_TIMER(...)
 #endif
 
 #ifndef GUTIL_DISABLE_LOG
@@ -62,6 +60,12 @@ namespace gutil {
 			os << data[i] << delimiter;
 		}
 		os << data[DIM-1];
+	}
+
+	[[nodiscard]] inline std::string format(size_t value, int width) noexcept {
+    	char buf[32];
+    	std::snprintf(buf, sizeof(buf), "%*zu", width, value);
+    	return buf;
 	}
 
 

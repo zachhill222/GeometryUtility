@@ -22,6 +22,7 @@ namespace gutil
 		// Data and aliases
 		////////////////////////////////////////////////////////////////
 		using scalar_type = T;
+		using value_type  = T;
 
 		T data[DIM];
 
@@ -564,4 +565,8 @@ namespace std {
 			return seed;
 		}
 	};
+
+	//inject tuple size into std
+	template<int DIM, gutil::IsScalar T>
+	struct tuple_size<gutil::Point<DIM,T>> : std::integral_constant<size_t, DIM> {};
 }
