@@ -87,6 +87,12 @@ namespace gutil
 		[[nodiscard]] bool empty() const noexcept { return data.empty(); }
 		[[nodiscard]] int n_bins() const noexcept { return n_bins_; }
 
+		void rebind_to_copy(std::span<T> data_copy) noexcept {
+			GUTIL_ASSERT(data_copy.size() == data.size());
+			data = data_copy;
+		}
+
+
 		void clear() noexcept {
 			data = std::span<T>{};
 			n_bins_ = -1;
