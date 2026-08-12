@@ -92,13 +92,16 @@ namespace gutil
 			data = data_copy;
 		}
 
-
 		void clear() noexcept {
 			data = std::span<T>{};
 			n_bins_ = -1;
 			n_bits_ = -1;
 			threads = nullptr;
 			bins.clear();
+		}
+
+		[[nodiscard]] size_t size() const noexcept {
+			return data.size();
 		}
 
 		/// Primary call (pass the full predicate to bin number)
