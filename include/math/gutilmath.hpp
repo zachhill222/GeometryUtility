@@ -420,7 +420,7 @@ namespace gutil {
 
 
 	///////////////////////////////////////////////////////////
-	/// Reductions and norms
+	/// Reductions and norms (for small quantities)
 	///////////////////////////////////////////////////////////
 	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T sum_reduce(std::span<const T,DIM> data) noexcept {
@@ -430,23 +430,6 @@ namespace gutil {
 		}
 		return result;
 	}
-
-	GUTIL_NO_ASSOC_MATH_START
-	template<size_t DIM, IsScalar T, IsScalar U=T> requires (DIM>0) && std::is_nothrow_convertible_v<T,U>
-	[[nodiscard]] inline constexpr T kahan_sum_reduce(std::span<const T,DIM> data) noexcept {
-		U aa{0};	//accumulator
-		U cc{0};	//compensation
-		U yy, tt;	//intermediates
-
-		for (size_t i=0; i<DIM; ++i) {
-			yy = static_cast<U>(data[i]) - cc;
-			tt = aa + yy;
-			cc = (tt - aa) - yy;
-			aa = tt;
-		}
-		return static_cast<T>(aa);
-	}
-	GUTIL_NO_ASSOC_MATH_END
 
 	template<size_t DIM, IsScalar T> requires (DIM>0)
 	[[nodiscard]] inline constexpr T product_reduce(std::span<const T,DIM> data) noexcept {
@@ -539,6 +522,56 @@ namespace gutil {
 		for (size_t i=0; i<DIM; ++i) {
 			const T dd = left[i] - right[i];
 			result = gutil::fma(dd, dd, result);
+		}
+		return result;
+	}
+
+
+	///////////////////////////////////////////////////////////
+	/// Reductions for large vectors
+	///////////////////////////////////////////////////////////
+	GUTIL_NO_ASSOC_MATH_START
+	template<IsScalar T>
+	[[nodiscard]] inline constexpr T kahan_sum_reduce(std::span<const T> data) noexcept {
+		T aa{0};	//accumulator
+		T cc{0};	//compensation
+		T yy, tt;	//intermediates
+
+		for (size_t i=0; i<data.size(); ++i) {
+			yy = data[i] - cc;
+			tt = aa + yy;
+			cc = (tt - aa) - yy;
+			aa = tt;
+		}
+		return aa;
+	}
+	GUTIL_NO_ASSOC_MATH_END
+
+	GUTIL_NO_ASSOC_MATH_START
+	template<IsScalar T>
+	[[nodiscard]] inline constexpr T kahan_dot_reduce(std::span<const T> left, std::span<const T> right) noexcept {
+		GUTIL_ASSERT(lef.size()==right.size());
+		T aa{0};	//accumulator
+		T cc{0};	//compensation
+		T yy, tt;	//intermediates
+
+		for (size_t i=0; i<left.size(); ++i) {
+			yy = (left[i]*right[i]) - cc;
+			tt = aa + yy;
+			cc = (tt - aa) - yy;
+			aa = tt;
+		}
+		return aa;
+	}
+	GUTIL_NO_ASSOC_MATH_END
+
+	template<IsScalar T>
+	[[nodiscard]] inline constexpr T dot_product_reduce(std::span<const T> left, std::span<const T> right) noexcept {
+		GUTIL_ASSERT(left.size()==right.size());
+		T result{0};
+		GUTIL_SIMD(reduction(+:result))
+		for (size_t i=0; i<left.size(); ++i) {
+			result += left[i]*right[i];
 		}
 		return result;
 	}
