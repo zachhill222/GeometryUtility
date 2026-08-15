@@ -550,7 +550,7 @@ namespace gutil {
 	GUTIL_NO_ASSOC_MATH_START
 	template<IsScalar T>
 	[[nodiscard]] inline constexpr T kahan_dot_reduce(std::span<const T> left, std::span<const T> right) noexcept {
-		GUTIL_ASSERT(lef.size()==right.size());
+		GUTIL_ASSERT(left.size()==right.size());
 		T aa{0};	//accumulator
 		T cc{0};	//compensation
 		T yy, tt;	//intermediates
