@@ -74,7 +74,7 @@ namespace gutil
 		constexpr const T* cbegin() const noexcept {return data;}
 		constexpr const T* cend()   const noexcept {return data + DIM;}
 
-		[[nodiscard]] operator std::span<const T,DIM>() const {return std::span<const T, DIM>{data, DIM};}
+		[[nodiscard]] constexpr operator std::span<const T,DIM>() const {return std::span<const T, DIM>{data, DIM};}
 
 		////////////////////////////////////////////////////////////////
 		// Type conversion
