@@ -183,7 +183,7 @@ namespace gutil
 		[[nodiscard]] const_iterator_type begin(int i) const noexcept {
 			GUTIL_ASSERT(0<=i && i<n_bins_);
 			GUTIL_ASSERT( static_cast<size_t>(n_bins_)+1 == bins.size() );
-			return data.begin()+bins[i+1];
+			return data.begin()+bins[i];
 		}
 
 		[[nodiscard]] const_iterator_type end(int i) const noexcept {
