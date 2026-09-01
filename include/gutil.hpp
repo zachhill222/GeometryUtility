@@ -8,6 +8,6 @@
 #include "octree/point_octree.hpp"
 #include "octree/volume_octree.hpp"
 
-#include "memory/thread_pool.hpp"
+#include "threads/threads.hpp"
 
 #include "algorithms/convex_collision.hpp"

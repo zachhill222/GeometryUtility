@@ -2,8 +2,7 @@
 
 #include "utility/utility.hpp"
 #include "geometry/geometry.hpp"
-
-#include "memory/thread_pool.hpp"
+#include "threads/threads.hpp"
 
 #include "octree/base_node.hpp"
 

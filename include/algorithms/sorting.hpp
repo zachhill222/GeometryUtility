@@ -1,7 +1,7 @@
 #pragma once
 
 #include "utility/utility.hpp"
-#include "memory/thread_pool.hpp"
+#include "threads/threads.hpp"
 
 #include <span>
 #include <algorithm>
@@ -322,11 +322,4 @@ namespace gutil
 	[[nodiscard]] typename Container::iterator sort_and_unique(Container& list, ThreadPool& tp) {
 		return sort_and_unique(list.begin(), list.end(), tp);
 	}
-
-
-
-
-
-
-
 }
