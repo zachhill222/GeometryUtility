@@ -26,6 +26,12 @@ namespace gutil {
 	//////////////////////////////////////////////////////////
 	template<typename Derived, typename T>
 	struct BinSortBase {
+
+
+		///////////////////////////////////////////////////////////////////////////////
+		/// Bin information
+		///////////////////////////////////////////////////////////////////////////////
+
 		//check if Derived supplies the BinFun and number of bins
 		static constexpr bool HAS_STATIC_BINFUN = requires {Derived::BinFunc(T{});};
 		static constexpr bool HAS_STATIC_N_BINS = requires {Derived::N_BINS;};
@@ -56,6 +62,25 @@ namespace gutil {
 		void set_bin_fun(BinFun&& f) noexcept requires(!HAS_STATIC_BINFUN) {fallback_bin_fun = std::forward<BinFun>(f);}
 		std::function<int(const T&)> fallback_bin_fun;
 
+		[[nodiscard]] static int bin(const T& val) noexcept requires (HAS_STATIC_BINFUN) {
+			return Derived::BinFunc(val);
+		}
+
+		[[nodiscard]] int bin(const T& val) const noexcept requires (!HAS_STATIC_BINFUN) {
+			return fallback_bin_fun(val);
+		}
+
+		//set and resize the number of bins
+		void set_n_bins(int M) noexcept requires (!HAS_STATIC_N_BINS) {
+			GUTIL_ASSERT(M>0);
+			bins.assign(M+1,0);
+			n_bins_ = M;
+			n_bits_ = std::bit_width(static_cast<uint>(M-1));
+		}
+
+		///////////////////////////////////////////////////////////////////////////////
+		/// Data access
+		///////////////////////////////////////////////////////////////////////////////
 		//cast to the derived class for convenience
 		[[nodiscard]]       Derived* derived()       noexcept {return static_cast<Derived*>(this);}
 		[[nodiscard]] const Derived* derived() const noexcept {return static_cast<const Derived*>(this);}
@@ -85,14 +110,53 @@ namespace gutil {
 		[[nodiscard]] int n_bins() const noexcept requires (!HAS_STATIC_N_BINS) {return n_bins_;}
 		[[nodiscard]] bool empty() const noexcept {return derived()->empty_impl();}
 		
-		[[nodiscard]] static int bin(const T& val) noexcept requires (HAS_STATIC_BINFUN) {
-			return Derived::BinFunc(val);
+		//Forward const element access to the entire data set
+		const T& operator[](size_t idx) const noexcept {GUTIL_ASSERT(idx < size()); return data()[idx];}
+		std::span<const T> as_span() const noexcept {return std::span<const T>{data(), size()};}
+
+
+		///////////////////////////////////////////////////////////////////////////////
+		/// Manage multithreading
+		///////////////////////////////////////////////////////////////////////////////
+		ThreadPool* threads{nullptr};
+		void set_threadpool(ThreadPool& tp) noexcept {threads = &tp;}
+		void clear_threadpool() noexcept {threads = nullptr;}
+		
+		///////////////////////////////////////////////////////////////////////////////
+		/// Look up data index or pointers. Sort each bin for better performance.
+		///////////////////////////////////////////////////////////////////////////////
+		//get the index to data
+		[[nodiscard]] size_t index(const T& val) const noexcept {
+			const int i = bin(val);
+			auto it = std::find(begin(i), end(i), val);
+			if (it==end(i)) {return size_t(-1);}
+			else {return bin_start(i) + std::distance(begin(i), it);}
 		}
 
-		[[nodiscard]] int bin(const T& val) const noexcept requires (!HAS_STATIC_BINFUN) {
-			return fallback_bin_fun(val);
+		template<typename Less = std::less<T>>
+		[[nodiscard]] size_t index_sorted(const T& val, Less&& less = Less{}) const noexcept {
+			const int i = bin(val);
+			auto it = std::lower_bound(begin(i), end(i), val, std::forward<Less>(less));
+			if (it==end(i) || *it!=val) {return size_t(-1);}
+			else {return bin_start(i) + std::distance(begin(i), it);}
 		}
 
+		//get an iterator to data
+		[[nodiscard]] const T* find(const T& val) const noexcept {
+			const size_t idx = index(val);
+			return (idx==size_t(-1)) ? data()+size() : data()+idx;
+		}
+
+		template<typename Less = std::less<T>>
+		[[nodiscard]] const T* find_sorted(const T& val, Less&& less = Less{}) const noexcept {
+			const size_t idx = index_sorted(val, std::forward<Less>(less));
+			return (idx==size_t(-1)) ? data()+size() : data()+idx;
+		}
+
+
+		///////////////////////////////////////////////////////////////////////////////
+		/// Extra utility
+		///////////////////////////////////////////////////////////////////////////////
 		void clear() noexcept {
 			if constexpr (!HAS_STATIC_N_BINS) {
 				n_bins_ = -1;
@@ -102,43 +166,28 @@ namespace gutil {
 			derived()->clear_impl();
 		}
 
-		//allow an external thread pool for multi-threaded sorting to be used
-		ThreadPool* threads{nullptr};
-		void set_threadpool(ThreadPool& tp) noexcept {threads = &tp;}
 
-		//set and resize the number of bins
-		void set_n_bins(int M) noexcept requires (!HAS_STATIC_N_BINS) {
-			GUTIL_ASSERT(M>0);
-			bins.assign(M+1,0);
-			n_bins_ = M;
-			n_bits_ = std::bit_width(static_cast<uint>(M-1));
+		///////////////////////////////////////////////////////////////////////////////
+		/// Sorting interface
+		///////////////////////////////////////////////////////////////////////////////
+		template<typename Less = std::less<T>>
+		void sort_bins(Less&& less = Less{}) noexcept {
+			if (threads) {
+				std::vector<ThreadPool::Handle> finished_flags;
+				for (int i=0; i<n_bins(); ++i) {
+					finished_flags.push_back( threads->submit([less](auto a, auto b){std::sort(a, b, less);}, begin(i), end(i)));
+				}
+				for (auto h : finished_flags) {
+					threads->wait_for(h);
+				}
+			}
+			else {
+				for (int i=0; i<n_bins(); ++i) {
+					std::sort(begin(i), end(i), less);
+				}
+			}
 		}
 
-	protected:
-		[[nodiscard]] bool is_valid(int i) const noexcept {
-			if (i<0 || i>=n_bins_)                 {return false;}
-			if (bins.size() != (size_t) n_bins_+1) {return false;}
-			if (bins[i+1]<bins[i])                 {return false;}
-			return true;
-		}
-
-		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
-		void recursive_partition_bit(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept;
-
-		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
-		void recursive_partition_bit_parallel(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept;
-		
-	public:
-		BinSortBase() = default;
-		BinSortBase(const BinSortBase&) = default;
-		BinSortBase(BinSortBase&&) = default;
-		BinSortBase& operator=(const BinSortBase&) = default;
-		BinSortBase& operator=(BinSortBase&&) = default;
-			
-		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T> && !HAS_STATIC_BINFUN)
-		BinSortBase(BinFun&& fun) : fallback_bin_fun{std::forward<BinFun>(fun)} {}
-
-		/// Primary call (pass the full predicate to bin number)
 		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T> && !HAS_STATIC_BINFUN)
 		void sort(BinFun&& bin_fun) {
 			GUTIL_ASSERT(is_valid(n_bins_-1));
@@ -173,8 +222,206 @@ namespace gutil {
 				}
 			}
 		}
+
+	protected:
+		[[nodiscard]] bool is_valid(int i) const noexcept {
+			if (i<0 || i>=n_bins_)                 {return false;}
+			if (bins.size() != (size_t) n_bins_+1) {return false;}
+			if (bins[i+1]<bins[i])                 {return false;}
+			return true;
+		}
+
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
+		void recursive_partition_bit(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept;
+
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
+		void recursive_partition_bit_parallel(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept;
+		
+	public:
+		BinSortBase() = default;
+		BinSortBase(const BinSortBase&) = default;
+		BinSortBase(BinSortBase&&) = default;
+		BinSortBase& operator=(const BinSortBase&) = default;
+		BinSortBase& operator=(BinSortBase&&) = default;
+			
+		template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T> && !HAS_STATIC_BINFUN)
+		BinSortBase(BinFun&& fun) : fallback_bin_fun{std::forward<BinFun>(fun)} {}
 	};
 
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	/// A non-owning version of BinSort (implementation class)
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename Derived, typename T>
+	struct BinSortSpanImpl : public BinSortBase<Derived,T> {
+		std::span<T> view{};
+
+		BinSortSpanImpl() = default;
+		explicit BinSortSpanImpl(std::span<T> data) : view(data) {}
+		BinSortSpanImpl(T* data, size_t n) : view(data,n) {}
+
+		[[nodiscard]] T* data_impl() noexcept {return view.data();}
+		[[nodiscard]] const T* data_impl() const noexcept {return view.data();}
+		[[nodiscard]] size_t size_impl() const noexcept {return view.size();}
+		[[nodiscard]] bool empty_impl() const noexcept {return view.empty();}
+		void clear_impl() noexcept {view = std::span<T>{};}
+
+		void rebind_to_copy(std::span<T> data_copy) noexcept {
+			#ifndef NDEBUG
+			GUTIL_ASSERT(data_copy.size() == view.size());
+			for (size_t i=0; i<std::min(size_t{100}, view.size()); ++i) {
+				GUTIL_ASSERT(data_copy[i]==view[i]);
+			}
+			#endif
+			view = data_copy;
+		}
+	};
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	/// An owning version of BinSort (implementation class)
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename Derived, typename T>
+	struct BinSortVectorImpl : public BinSortBase<Derived,T> {
+		std::vector<T> values{};
+
+		BinSortVectorImpl() = default;
+		explicit BinSortVectorImpl(std::vector<T> data) : values(std::move(data)) {}
+		template<std::random_access_iterator I> requires (std::same_as<T,std::iter_value_t<I>>)
+		BinSortVectorImpl(I begin, I end) : values(begin, end) {}
+
+		[[nodiscard]] T* data_impl() noexcept {return values.data();}
+		[[nodiscard]] const T* data_impl() const noexcept {return values.data();}
+		[[nodiscard]] size_t size_impl() const noexcept {return values.size();}
+		[[nodiscard]] bool empty_impl() const noexcept {return values.empty();}
+		void clear_impl() noexcept {values.clear();}
+
+		[[nodiscard]] std::vector<T>& vector() noexcept {return values;}
+		[[nodiscard]] const std::vector<T>& vector() const noexcept {return values;}
+	};
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	/// Pre-declare final classes for enabling better conversions
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename T>
+	struct BinSortSpan;
+
+	template<typename T, auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+	struct StaticBinSortSpan;
+
+	template<typename T>
+	struct BinSortVector;
+
+	template<typename T, auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+	struct StaticBinSortVector;
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	/// Final non-owning/view classes
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename T>
+	struct BinSortSpan : public BinSortSpanImpl<BinSortSpan<T>,T> {
+		using BinSortSpanImpl<BinSortSpan<T>,T>::BinSortSpanImpl;
+
+		template<auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+		[[nodiscard]] explicit operator StaticBinSortSpan<T,BinFun,nBins>() noexcept {
+			StaticBinSortSpan<T,BinFun,nBins> result{this->data(), this->size()};
+			result.bins = this->bins;
+			return result;
+		}
+
+		explicit BinSortSpan(BinSortVector<T>& bin_sort_vec) noexcept : BinSortSpan(bin_sort_vec.data(), bin_sort_vec.size()) {
+			this->bins    = bin_sort_vec.bins;
+			this->n_bins_ = bin_sort_vec.n_bins_;
+			this->n_bits_ = bin_sort_vec.n_bits_;
+			this->fallback_bin_fun = bin_sort_vec.fallback_bin_fun;
+		}
+	};
+
+	template<typename T, auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+	struct StaticBinSortSpan : public BinSortSpanImpl<StaticBinSortSpan<T, BinFun, nBins>,T> {
+		static constexpr int N_BINS = nBins;
+		static int BinFunc(const T& val) noexcept {return BinFun(val);}
+		using BinSortSpanImpl<StaticBinSortSpan<T, BinFun, nBins>,T>::BinSortSpanImpl;
+
+		[[nodiscard]] explicit operator BinSortSpan<T>() noexcept {
+			BinSortSpan<T> result{this->data(), this->size()};
+			result.set_n_bins(N_BINS);
+			result.set_bin_fun(BinFunc);
+			result.bins = this->bins;
+			return result;
+		}
+
+		explicit StaticBinSortSpan(StaticBinSortVector<T,BinFun,nBins>& bin_sort_vec) noexcept : StaticBinSortSpan(bin_sort_vec.data(), bin_sort_vec.size()) {
+			this->bins = bin_sort_vec.bins;
+		}
+	};
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	/// Final owning classes
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	template<typename T>
+	struct BinSortVector : public BinSortVectorImpl<BinSortVector<T>,T> {
+		using BinSortVectorImpl<BinSortVector<T>,T>::BinSortVectorImpl;
+
+		template<auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+		[[nodiscard]] explicit operator StaticBinSortVector<T,BinFun,nBins>() const noexcept {
+			StaticBinSortVector<T,BinFun,nBins> result{this->values};
+			result.bins = this->bins;
+			return result;
+		}
+
+		template<auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+		[[nodiscard]] explicit operator StaticBinSortVector<T,BinFun,nBins>() noexcept {
+			StaticBinSortVector<T,BinFun,nBins> result{std::move(this->values)};
+			result.bins = this->bins;
+			return result;
+		}
+
+		explicit BinSortVector(const BinSortSpan<T>& bin_sort_span) noexcept : 
+			BinSortVector(bin_sort_span.data(), bin_sort_span.data()+bin_sort_span.size()) {
+			
+			this->bins    = bin_sort_span.bins;
+			this->n_bins_ = bin_sort_span.n_bins_;
+			this->n_bits_ = bin_sort_span.n_bits_;
+			this->fallback_bin_fun = bin_sort_span.fallback_bin_fun;
+		}
+	};
+
+	template<typename T, auto BinFun, int nBins> requires(std::is_invocable_r_v<int,decltype(BinFun),T> && nBins>0)
+	struct StaticBinSortVector : public BinSortVectorImpl<StaticBinSortVector<T,BinFun,nBins>,T> {
+		static constexpr int N_BINS = nBins;
+		static int BinFunc(const T& val) noexcept {return BinFun(val);}
+		using BinSortVectorImpl<StaticBinSortVector<T,BinFun,nBins>,T>::BinSortVectorImpl;
+
+		[[nodiscard]] explicit operator BinSortVector<T>() const noexcept {
+			BinSortVector<T> result{this->values};
+			result.set_n_bins(N_BINS);
+			result.set_bin_fun(BinFunc);
+			result.bins = this->bins;
+			return result;
+		}
+
+		[[nodiscard]] explicit operator BinSortVector<T>() noexcept {
+			BinSortVector<T> result{std::move(this->values)};
+			result.set_n_bins(N_BINS);
+			result.set_bin_fun(BinFunc);
+			result.bins = this->bins;
+			return result;
+		}
+
+		explicit StaticBinSortVector(const StaticBinSortSpan<T,BinFun,nBins>& bin_sort_span) noexcept : 
+			StaticBinSortVector(bin_sort_span.data(), bin_sort_span.data()+bin_sort_span.size()) {
+			this->bins = bin_sort_span.bins;
+		}
+	};
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	/// Implementation of bin-sort algorithms
+	////////////////////////////////////////////////////////////////////////////////////////////////
 	template<typename Derived, typename T>
 	template<typename BinFun> requires(std::is_invocable_r_v<int, BinFun, T>)
 	void BinSortBase<Derived,T>::recursive_partition_bit(size_t left, size_t right, int bit, int bin, BinFun&& bin_fun) noexcept {
@@ -244,9 +491,11 @@ namespace gutil {
 		const int right_bin = bin | (int{1} << bit);
 		const bool fork     = ((right-left) > 4096) && (threads->n_active_tasks()<threads->n_threads());
 
+		ThreadPool::Handle h;
+
 		if (left_bin < n_bins_) {
 			if (fork) {
-				threads->submit( [&](size_t l, size_t r, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(l,r,bt,bn,pred);},
+				h = threads->submit( [&](size_t l, size_t r, int bt, int bn, std::decay_t<BinFun> pred) noexcept {recursive_partition_bit_parallel(l,r,bt,bn,pred);},
 							left, mid, bit-1, left_bin, bin_fun );
 			}
 			else {
@@ -257,5 +506,7 @@ namespace gutil {
 		if (right_bin < n_bins_) {
 			recursive_partition_bit_parallel(mid, right, bit-1, right_bin, std::forward<BinFun>(bin_fun));
 		}
+
+		if (fork) {threads->wait_for(h);}
 	}
 }

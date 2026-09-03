@@ -10,4 +10,4 @@
 
 #include "threads/threads.hpp"
 
-#include "algorithms/convex_collision.hpp"
+#include "algorithms/algorithms.hpp"
