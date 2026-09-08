@@ -2,6 +2,16 @@
 
 #include "utility/macros.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+#include <cstdio>
+
+
 #ifdef GUTIL_PROFILE
 	#define GUTIL_PROFILE_FUNCTION() \
 		static ::gutil::FunctionProfiler GUTIL_CONCAT(_gutil_profiler_,__LINE__){__func__, __FILE__, __LINE__}; \
