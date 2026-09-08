@@ -259,7 +259,13 @@ namespace gutil {
 		BinSortSpanImpl() = default;
 		explicit BinSortSpanImpl(std::span<T> data) : view(data) {}
 		BinSortSpanImpl(T* data, size_t n) : view(data,n) {}
-
+		
+		//when using this class to sort existing data, it is conveninent to set the number of bins
+		//at construction time. additionally, we may want to use multithreaded sorting but may not
+		//want this class to keep a pointer to a thread resources.
+		BinSortSpanImpl(std::span<T> data, int n_bins) : view(data) {this->set_n_bins(n_bins);}
+		BinSortSpanImpl(T* data, size_t n, int n_bins) : view(data,n) {this->set_n_bins(n_bins);}
+		
 		[[nodiscard]] T* data_impl() noexcept {return view.data();}
 		[[nodiscard]] const T* data_impl() const noexcept {return view.data();}
 		[[nodiscard]] size_t size_impl() const noexcept {return view.size();}
