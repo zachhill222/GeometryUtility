@@ -1,16 +1,13 @@
 #pragma once
-
 #include "utility/macros.hpp"
-
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 #include <cstdio>
-
 
 #ifdef GUTIL_PROFILE
 	#define GUTIL_PROFILE_FUNCTION() \
@@ -23,7 +20,6 @@
 namespace gutil {
 
 	struct FunctionProfiler {
-
 		struct ThreadStats {
 			std::atomic<int64_t> total_ns{0};
 			std::atomic<size_t>  calls{0};
@@ -32,27 +28,33 @@ namespace gutil {
 		std::string_view name;
 		std::string_view file;
 		int line;
-
-		mutable std::mutex registry_mutex;
-		mutable std::vector<ThreadStats*> registry;
+		size_t index;   // this profiler's own, fixed position in function_profiler_list, set once at construction
 
 		FunctionProfiler(std::string_view n, std::string_view f, int l) noexcept;
 
-		// keyed by 'this' -- each thread gets one map, but each distinct FunctionProfiler
-		// instance gets its own entry within it, so different profilers on the same
-		// thread never share an accumulator.
-		ThreadStats& this_thread_stats() const noexcept {
-			static thread_local std::unordered_map<const FunctionProfiler*, ThreadStats> per_instance;
-			auto it = per_instance.find(this);
-			if (it != per_instance.end()) { return it->second; }
-
-			auto [inserted, ok] = per_instance.try_emplace(this);
-			ThreadStats& stats = inserted->second;
-			{
-				std::lock_guard<std::mutex> lock(registry_mutex);
-				registry.push_back(&stats);
+		// heap-allocated, deliberately never freed -- a thread's own stats must
+		// survive even after that thread terminates, since aggregation may run
+		// long after a worker thread has already joined. Matches the same
+		// "never explicitly destroyed, program-lifetime" pattern already used
+		// for FunctionProfiler instances themselves.
+		//
+		// deque (not vector): ThreadStats contains std::atomic members, which
+		// are neither copyable nor movable -- vector::resize would require
+		// relocating existing elements on growth; deque never does.
+		static std::deque<ThreadStats>& this_thread_all_stats() noexcept {
+			static thread_local std::deque<ThreadStats>* per_thread_stats = nullptr;
+			if (!per_thread_stats) {
+				per_thread_stats = new std::deque<ThreadStats>();
+				std::lock_guard<std::mutex> lock(thread_stats_registry_mutex());
+				thread_stats_registry().push_back(per_thread_stats);
 			}
-			return stats;
+			return *per_thread_stats;
+		}
+
+		ThreadStats& this_thread_stats() const noexcept {
+			auto& dq = this_thread_all_stats();
+			if (index >= dq.size()) { dq.resize(index+1); }
+			return dq[index];
 		}
 
 		struct ScopedTimer {
@@ -70,24 +72,36 @@ namespace gutil {
 		[[nodiscard]] ScopedTimer time() const noexcept { return ScopedTimer{this_thread_stats()}; }
 
 		[[nodiscard]] double total_seconds() const noexcept {
-			std::lock_guard<std::mutex> lock(registry_mutex);
+			std::lock_guard<std::mutex> lock(thread_stats_registry_mutex());
 			int64_t sum = 0;
-			for (auto* s : registry) {sum += s->total_ns.load(std::memory_order_relaxed);}
+			for (auto* dq : thread_stats_registry()) {
+				if (index < dq->size()) { sum += (*dq)[index].total_ns.load(std::memory_order_relaxed); }
+			}
 			return sum * 1e-9;
 		}
 		[[nodiscard]] size_t total_calls() const noexcept {
-			std::lock_guard<std::mutex> lock(registry_mutex);
+			std::lock_guard<std::mutex> lock(thread_stats_registry_mutex());
 			size_t sum = 0;
-			for (auto* s : registry) {sum += s->calls.load(std::memory_order_relaxed);}
+			for (auto* dq : thread_stats_registry()) {
+				if (index < dq->size()) { sum += (*dq)[index].calls.load(std::memory_order_relaxed); }
+			}
 			return sum;
+		}
+
+		static std::mutex& thread_stats_registry_mutex() noexcept { static std::mutex m; return m; }
+		static std::vector<std::deque<ThreadStats>*>& thread_stats_registry() noexcept {
+			static std::vector<std::deque<ThreadStats>*> reg;
+			return reg;
 		}
 	};
 
+	//define global resources for profiling (but only if they are needed)
 	inline std::mutex profiler_list_mutex;
 	inline std::vector<FunctionProfiler*> function_profiler_list;
 
 	inline FunctionProfiler::FunctionProfiler(std::string_view n, std::string_view f, int l) noexcept : name(n), file(f), line(l) {
 		std::lock_guard<std::mutex> lock(profiler_list_mutex);
+		index = function_profiler_list.size();
 		function_profiler_list.push_back(this);
 	}
 
