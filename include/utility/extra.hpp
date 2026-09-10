@@ -20,12 +20,6 @@
 //////////////////////////////////////////////////////
 /// Enable/disable some profiling tools
 //////////////////////////////////////////////////////
-#ifdef PROFILE
-	#define GUTIL_PROFILE(...) gutil::LogTime gutil_macro_profile_timer(__FILE__, __LINE__, "(prof) ", __VA_ARGS__)
-#else
-	#define GUTIL_PROFILE(...)
-#endif
-
 #ifndef GUTIL_DISABLE_LOG
 	#define GUTIL_LOG(...) gutil::Logger::log_impl(__FILE__, __LINE__, __VA_ARGS__)
 #else
