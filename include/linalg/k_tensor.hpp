@@ -1,9 +1,14 @@
 #pragma once
 
+#include "utility/utility.hpp"
+#include "math/math.hpp"
+
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <utility>
 #include <type_traits>
+#include <cstdlib>
 
 namespace gutil {
 	
@@ -64,55 +69,114 @@ namespace gutil {
 		[[nodiscard]] constexpr const size_t dim(size_t k) const noexcept {GUTIL_ASSERT(k<K); return dim_[k];}
 
 
-		//get the flat index "column major"
-		[[nodiscard]] constexpr size_t flat_index(std::array<size_t,K> idx) const noexcept requires(K>3) {
-			//K=1: flat = idx[0]
-			//K=2: flat = idx[0] + dim[0]*idx[1]
-			//K=3: flat = idx[0] + dim[0]*( idx[1] + dim[1]*idx[2])
-			//K=4: flat = idx[0] + dim[0]*( idx[1] + dim[1]*( idx[2] + dim[2]*idx[3]))
-			size_t flat = 0, stride = 1;
-			for (size_t k=0; k<K; ++k) {
-				GUTIL_ASSERT(idx[k]<dim_[k]);
-				flat   += idx[k]*stride;
-				stride *= dim_[k];
+		////////////////////////////////////////////////////////////////////////////
+		/// Core static methods. Users may want to just use these on raw data buffers.
+		////////////////////////////////////////////////////////////////////////////
+		static size_t FlatIndex(std::array<size_t,K> idx, const std::array<size_t,K>& dims) noexcept {
+			//Get the flat "column - major" index
+			#ifndef NDEBUG
+				for (size_t k=0; k<K; ++k) {GUTIL_ASSERT(idx[k]<dims[k]);}
+			#endif
+			if constexpr (K==0) {return 0;}
+			else if constexpr (K==1) {return idx[0];}
+			else if constexpr (K==2) {return idx[0] + dims[0]*idx[1];}
+			else if constexpr (K==3) {return idx[0] + dims[0]*(idx[1] + dims[1]*idx[2]);}
+			else {
+				size_t flat = 0, stride = 1;
+				for (size_t k=0; k<K; ++k) {
+					flat   += idx[k]*stride;
+					stride *= dims[k];
+				}
+				return flat;
 			}
-			return flat;
 		}
 
-		[[nodiscard]] const size_t flat_index(std::array<size_t,0> idx) const noexcept requires(K==0) {
-			return 0;
-		}
-		
-		[[nodiscard]] const size_t flat_index(std::array<size_t,1> idx) const noexcept requires(K==1) {
-			GUTIL_ASSERT(idx[0]<dim_[0]);
-			return idx[0];
-		}
-		
-		[[nodiscard]] const size_t flat_index(std::array<size_t,2> idx) const noexcept requires(K==2) {
-			GUTIL_ASSERT(idx[0]<dim_[0] && idx[1]<dim_[1]);
-			return idx[0] + dim_[0]*idx[1];
+		static void FlatToTensorIndex(size_t flat, std::array<size_t,K>& idx, const std::array<size_t,K>& dims) noexcept {
+			GUTIL_ASSERT(flat < gutil::product_reduce(dims));
+			if constexpr (K==1) {idx[0]=flat;}
+			else if constexpr (K==2) {
+				const size_t q = flat / dims[0];
+				idx[0] = flat - q*dims[0];
+				idx[1] = q;
+			}
+			else {
+				for (size_t axis=0; axis<K; ++axis) {
+					const size_t q = flat / dims[axis];
+					idx[axis] = flat - q*dims[axis];
+					flat = q;
+				}
+			}
 		}
 
-		[[nodiscard]] const size_t flat_index(std::array<size_t,3> idx) const noexcept requires(K==3) {
-			GUTIL_ASSERT(idx[0]<dim_[0] && idx[1]<dim_[1] && idx[2]<dim_[2]);
-			return idx[0] + dim_[0]*(idx[1] + dim_[1]*idx[2]);
+		[[nodiscard]] static constexpr size_t AxisStride(size_t axis, const std::array<size_t,K>& dims) noexcept {
+			if constexpr (K==0) {return 0;}
+			if constexpr (K==1) {return 1;}
+			if constexpr (K==2) {return (axis==0) ? 1 : dims[0];}
+			else {
+				size_t stride = 1;
+				GUTIL_SIMD(reduction(*:stride))
+				for (size_t a=0; a<axis; ++a) {stride *= dims[a];}
+				return stride;
+			}
+		}
+
+		//applies op to every entry in the fixed-i slice along the specified axis (the K-1 dim tensor).
+		//this can be used to do various tensor operations
+		template<bool Simd=false, typename Op>
+		static void ApplyAlongAxisIndex(pointer_type data_ptr, size_t axis, size_t i, Op&& op, const std::array<size_t,K>& dims) noexcept {
+			// GUTIL_PROFILE_FUNCTION(Simd);
+			size_t stride = 1;
+			for (size_t i=0; i<axis; ++i) {
+				stride *= dims[i];
+			}
+
+			size_t total = stride;
+			for (size_t i=axis; i<K; ++i) {
+				total *= dims[i];
+			}
+
+			const size_t dim_axis = dims[axis];
+			const size_t outer_count = total / (stride * dim_axis);
+			const size_t offset = i*stride;
+			const size_t outer_stride = stride*dim_axis;
+
+			//note (axis,i) partions the flat index into a low/fast and a high/slow parts
+			// ...fast axes..., specified axis=i, ...slow axes...
+			//outer looper over the slow axes while inner loops over the fast.
+			GUTIL_SIMD(collapse(2) if(Simd))
+			for (size_t outer=0; outer<outer_count; ++outer) {
+				for (size_t inner=0; inner<stride; ++inner) {
+					op(data_ptr[outer*outer_stride + offset + inner]);
+				}
+			}
+		}
+
+		//conjugate of apply_along_axis_index: fixes a single logical (flat, (K-1)-dim)
+		//position "slice" and walks i across the axis, rather than fixing i and walking
+		//the logical space. "slice" is also exactly the destination position in a
+		//compacted, axis-reduced result -- see contract_axis.
+		template<bool Simd=false, typename Op>
+		static void ApplyAlongSlice(pointer_type data_ptr, size_t axis, size_t slice, Op&& op, const std::array<size_t,K>& dims) noexcept {
+			GUTIL_PROFILE_FUNCTION(Simd);
+			const size_t stride = AxisStride(axis, dims);
+			const size_t dim_axis = dims[axis];
+			const size_t outer = slice / stride;
+			const size_t inner = slice % stride;
+			const size_t base = outer*(stride*dim_axis) + inner;
+			GUTIL_SIMD(if(Simd))
+			for (size_t i=0; i<dim_axis; ++i) {
+				op(data_ptr[base + i*stride]);
+			}
+		}
+
+
+		[[nodiscard]] constexpr size_t flat_index(std::array<size_t,K> idx) const noexcept {
+			return FlatIndex(std::move(idx), dim_);
 		}
 
 		//invert the index (flat to tensor/array index)
 		void flat_to_tensor_index(size_t flat, std::array<size_t,K>& idx) const noexcept {
-			for (size_t axis=0; axis<K; ++axis) {
-				idx[axis] = flat % dim_[axis];
-				flat /= dim_[axis];
-			}
-		}
-
-		std::array<size_t,K> flat_to_tensor_index(size_t flat) const noexcept {
-			std::array<size_t,K> idx{};
-			for (size_t axis=0; axis<K; ++axis) {
-				idx[axis] = flat % dim_[axis];
-				flat /= dim_[axis];
-			}
-			return idx;
+			FlatToTensorIndex(flat, idx, dim_);
 		}
 
 		//a few helper functions to compute strides and starts of axis slices.
@@ -120,47 +184,111 @@ namespace gutil {
 		//note incrementing the flat index has a fast (left dots) and slow (right dots) blocks of indices.
 		//keeping i fixed, the remaining indices form a K-1 tensor.
 		[[nodiscard]] constexpr size_t axis_stride(size_t axis) const noexcept {
-			size_t stride = 1;
-			for (size_t a=0; a<axis; ++a) {stride *= dim_[a];}
-			return stride;
+			return AxisStride(axis, dim_);
 		}
 
 		//applies op to every entry in the fixed-i slice along the specified axis (the K-1 dim tensor).
 		//this can be used to do various tensor operations
-		template<typename Op>
+		template<bool Simd=false, typename Op>
 		void apply_along_axis_index(size_t axis, size_t i, Op&& op) const noexcept {
-			const size_t stride = axis_stride(axis);
-			const size_t dim_axis = dim_[axis];
-			const size_t outer_count = count() / (stride * dim_axis);
-
-			//note (axis,i) partions the flat index into a low/fast and a high/slow parts
-			// ...fast axes..., specified axis=i, ...slow axes...
-			//outer looper over the slow axes while inner loops over the fast.
-			for (size_t outer=0; outer<outer_count; ++outer) {
-				const size_t base = outer*(stride*dim_axis) + i*stride;
-				for (size_t inner=0; inner<stride; ++inner) {
-					op(ptr[base + inner]);
-				}
-			}
+			ApplyAlongAxisIndex<false>(ptr, axis, i, std::forward<Op>(op), dim_);
 		}
 
 		template<typename Op>
 		void apply_along_axis_index_simd(size_t axis, size_t i, Op&& op) const noexcept {
-			const size_t stride = axis_stride(axis);
-			const size_t dim_axis = dim_[axis];
-			const size_t outer_count = count() / (stride * dim_axis);
+			ApplyAlongAxisIndex<true>(ptr, axis, i, std::forward<Op>(op), dim_);
+		}
 
-			//note (axis,i) partions the flat index into a low/fast and a high/slow parts
-			// ...fast axes..., specified axis=i, ...slow axes...
-			//outer looper over the slow axes while inner loops over the fast.
-			GUTIL_SIMD(collapse(2) if(Simd))
-			for (size_t outer=0; outer<outer_count; ++outer) {
-				const size_t base = outer*(stride*dim_axis) + i*stride;
-				for (size_t inner=0; inner<stride; ++inner) {
-					op(ptr[base + inner]);
+		//conjugate of apply_along_axis_index: fixes a single logical (flat, (K-1)-dim)
+		//position "slice" and walks i across the axis, rather than fixing i and walking
+		//the logical space. "slice" is also exactly the destination position in a
+		//compacted, axis-reduced result -- see contract_axis.
+		template<typename Op>
+		void apply_along_slice(size_t axis, size_t slice, Op&& op) const noexcept {
+			ApplyAlongSlice<false>(ptr, axis, slice, std::forward<Op>(op), dim_);
+		}
+
+		template<typename Op>
+		void apply_along_slice_simd(size_t axis, size_t slice, Op&& op) const noexcept {
+			ApplyAlongSlice<true>(ptr, axis, slice, std::forward<Op>(op), dim_);
+		}
+
+		//tensor-vector product along an axis. mathematically, the result is a K-1 tensor,
+		//but we keep the K-tensor and set the dim[axis]=1 instead.
+		void contract_axis_vector(size_t axis, const T* v) noexcept requires(!IsConst) {
+			const size_t dim_axis = dim_[axis];
+
+			//step 1: multiply every entry by its own v[i] -- fix i, walk the logical space
+			for (size_t i=0; i<dim_axis; ++i) {
+				const T v_i = v[i];
+				apply_along_axis_index_simd(axis, i, [v_i](T& val){val *= v_i;});
+			}
+
+			//step 2: reduce (sum) across the axis -- fix each logical position, walk i.
+			//"slice" is already the correct, compacted destination position.
+			const size_t n_slices = count() / dim_axis;
+			
+			GUTIL_SIMD()
+			for (size_t slice=0; slice<n_slices; ++slice) {
+				T sum{0};
+				apply_along_slice_simd(axis, slice, [&sum](const T& val){sum += val;});
+				ptr[slice] = sum;
+			}
+
+			dim_[axis] = 1;
+		}
+
+		template<typename ArgT, typename ArgsX> requires (std::same_as<T, std::remove_cvref_t<decltype(std::declval<const ArgsX&>()[size_t{0}])>>)
+		static T EvaluateKFormConsume(ArgT&& tensor_data, const std::array<ArgsX,K>& x_ptrs, const std::array<size_t,K>& dims) noexcept {
+			GUTIL_PROFILE_FUNCTION();
+			if constexpr (K==0) {return tensor_data[0];}
+			else if constexpr (K==1) {
+				T val{0};
+				GUTIL_SIMD(reduction(+:val))
+				for (size_t i=0; i<dims[0]; ++i) {val += tensor_data[i]*x_ptrs[0][i];}
+				return val;
+			}
+			else if constexpr (K==2) {
+				T val{0};
+				GUTIL_SIMD(reduction(+:val) collapse(2))
+				for (size_t j=0; j<dims[1]; ++j) {
+					for (size_t i=0; i<dims[0]; ++i) {
+						val += tensor_data[i + dims[0]*j] * x_ptrs[0][i] * x_ptrs[1][j];
+					}
 				}
+				return val;
+			}
+			else {
+
+				//args should be containers that are convertible to spans.
+				T* data_ptr = ToRawPtr(std::forward<ArgT>(tensor_data));
+				size_t total = 1;
+				for (size_t d : dims) {total *= d;}
+
+				//multiply every entry by its own, per-axis coefficient, one axis at a time,
+				for (size_t axis=0; axis<K; ++axis) {
+					for (size_t i=0; i<dims[axis]; ++i) {
+						const T x_val = x_ptrs[axis][i];
+						//true is simd
+						ApplyAlongAxisIndex<true>(data_ptr, axis, i, [x_val](T& val){val *= x_val;}, dims);
+					}
+				}
+
+				//plain, contiguous reduction
+				T result{0};
+				GUTIL_SIMD(reduction(+:result))
+				for (size_t i=0; i<total; ++i) {result += tensor_data[i];}
+				return result;
 			}
 		}
+
+		template<typename ArgT, typename ArgsX> requires (std::same_as<T,typename ArgsX::value_type>)
+		static T EvaluateKFormConsume(ArgT&& tensor_data, const std::array<ArgsX,K>& x_ptrs) noexcept {
+			std::array<size_t,K> dims;
+			for (size_t k=0; k<K; ++k) {dims[k] = x_ptrs[k].size();}
+			return EvaluateKFormConsume(std::forward<ArgT>(tensor_data), x_ptrs, std::move(dims));
+		}
+
 
 
 		//access data by index (the user/derived class must validate the underlying data)
@@ -178,6 +306,19 @@ namespace gutil {
 		}
 
 	protected:
+		//helper for getting raw pointers from containers
+		template<typename Arg>
+		[[nodiscard]] static constexpr const T* ToRawPtr(const Arg& a) noexcept {
+			if constexpr (requires {a.data();}) {return a.data();}
+			else {return a;}
+		}
+
+		template<typename Arg>
+		[[nodiscard]] static constexpr T* ToRawPtr(Arg& a) noexcept {
+			if constexpr (requires {a.data();}) {return a.data();}
+			else {return a;}
+		}
+
 		//data and dimensions
 		pointer_type ptr{nullptr};
 		std::array<size_t, K> dim_{};

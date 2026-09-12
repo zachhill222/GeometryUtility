@@ -12,12 +12,31 @@
 #include <algorithm>
 
 #ifdef GUTIL_PROFILE
-	#define GUTIL_PROFILE_FUNCTION() \
-		static ::gutil::FunctionProfiler GUTIL_CONCAT(_gutil_profiler_,__LINE__){__func__, __FILE__, __LINE__}; \
+	#define GUTIL_PROFILE_FUNCTION(...) \
+		static const ::std::string GUTIL_CONCAT(_gutil_profiler_name_,__LINE__) = \
+			::gutil::detail::make_variant_name(__func__ __VA_OPT__(,) __VA_ARGS__); \
+		static ::gutil::FunctionProfiler GUTIL_CONCAT(_gutil_profiler_,__LINE__){GUTIL_CONCAT(_gutil_profiler_name_,__LINE__), __FILE__, __LINE__}; \
 		auto GUTIL_CONCAT(_gutil_profiler_guard_,__LINE__) = GUTIL_CONCAT(_gutil_profiler_,__LINE__).time()
 #else
-	#define GUTIL_PROFILE_FUNCTION()
+	#define GUTIL_PROFILE_FUNCTION(...)
 #endif
+
+//for different templates, we may wish to track different profiles
+namespace gutil::detail {
+	template<typename... Args>
+	[[nodiscard]] inline std::string make_variant_name(std::string_view base, const Args&... args) {
+		if constexpr (sizeof...(Args)==0) {
+			return std::string(base);
+		} else {
+			std::ostringstream oss;
+			oss << std::boolalpha << base << "<";
+			size_t i = 0;
+			((oss << (i++==0 ? "" : ",") << args), ...);
+			oss << ">";
+			return oss.str();
+		}
+	}
+}
 
 namespace gutil {
 
@@ -176,11 +195,11 @@ namespace gutil {
 		for (auto* p : function_profiler_list) {
 			std::string location = std::string(p->file) + ":" + std::to_string(p->line);
 			std::cout << std::setw(name_width) << std::string(p->name)
-				<< std::setw(location_width) << location
-				<< std::setw(calls_width) << p->total_calls()
-				<< std::setw(threads_width) << p->thread_count()
+				<< std::setw(location_width)   << location
+				<< std::setw(calls_width)      << p->total_calls()
+				<< std::setw(threads_width)    << p->thread_count()
 				<< std::fixed << std::setprecision(6)
-				<< std::setw(cpu_width) << p->total_seconds()
+				<< std::setw(cpu_width)  << p->total_seconds()
 				<< std::setw(wall_width) << p->wall_seconds()
 				<< std::setprecision(1)
 				<< p->percent_parallel() << "%\n";
