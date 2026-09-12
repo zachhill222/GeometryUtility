@@ -13,9 +13,10 @@
 
 #ifdef GUTIL_PROFILE
 	#define GUTIL_PROFILE_FUNCTION(...) \
-		static const ::std::string GUTIL_CONCAT(_gutil_profiler_name_,__LINE__) = \
-			::gutil::detail::make_variant_name(__func__ __VA_OPT__(,) __VA_ARGS__); \
-		static ::gutil::FunctionProfiler GUTIL_CONCAT(_gutil_profiler_,__LINE__){GUTIL_CONCAT(_gutil_profiler_name_,__LINE__), __FILE__, __LINE__}; \
+		static constexpr auto GUTIL_CONCAT(_gutil_profiler_arr_,__LINE__) = \
+			::gutil::detail::make_variant_name<128>(__func__, #__VA_ARGS__ __VA_OPT__(,) __VA_ARGS__); \
+		static ::gutil::FunctionProfiler GUTIL_CONCAT(_gutil_profiler_,__LINE__){ \
+			::std::string_view(GUTIL_CONCAT(_gutil_profiler_arr_,__LINE__).data()), __FILE__, __LINE__}; \
 		auto GUTIL_CONCAT(_gutil_profiler_guard_,__LINE__) = GUTIL_CONCAT(_gutil_profiler_,__LINE__).time()
 #else
 	#define GUTIL_PROFILE_FUNCTION(...)
@@ -23,18 +24,72 @@
 
 //for different templates, we may wish to track different profiles
 namespace gutil::detail {
-	template<typename... Args>
-	[[nodiscard]] inline std::string make_variant_name(std::string_view base, const Args&... args) {
-		if constexpr (sizeof...(Args)==0) {
-			return std::string(base);
-		} else {
-			std::ostringstream oss;
-			oss << std::boolalpha << base << "<";
+	template<size_t MaxLen, typename... Args>
+	consteval std::array<char, MaxLen> make_variant_name(std::string_view base, std::string_view arg_names, const Args&... args) {
+		std::array<char, MaxLen> result{};   // zero-initialized -- guarantees a trailing null
+		size_t pos = 0;
+		auto append_sv = [&](std::string_view sv) {
+			for (char c : sv) {if (pos<MaxLen-1) {result[pos++]=c;}}
+		};
+		auto append_char = [&](char c) {
+			if (pos<MaxLen-1) {result[pos++]=c;}
+		};
+		auto append_value = [&]<typename T>(const T& val) {
+			if constexpr (std::same_as<T,bool>) {
+				append_sv(val ? "true" : "false");
+			}
+			else if constexpr (std::is_integral_v<T>) {
+				if (val == 0) {
+					append_char('0');
+				} else {
+					auto v = val;
+					bool negative = false;
+					if constexpr (std::is_signed_v<T>) {if (v<0) {negative=true; v=-v;}}
+					char digits[24]; int n=0;
+					while (v>0) {digits[n++] = static_cast<char>('0'+(v%10)); v/=10;}
+					if (negative) {append_char('-');}
+					for (int i=n-1; i>=0; --i) {append_char(digits[i]);}
+				}
+			}
+		};
+
+		append_sv(base);
+		if constexpr (sizeof...(Args) > 0) {
+			append_char('<');
+
+			//split the stringified argument list (from #__VA_ARGS__) on commas,
+			//to pair each argument's own source-code name with its evaluated value
+			std::array<std::string_view, sizeof...(Args)> names{};
+			size_t start=0, idx=0;
+			for (size_t i=0; i<=arg_names.size(); ++i) {
+				if (i==arg_names.size() || arg_names[i]==',') {
+					std::string_view name = arg_names.substr(start, i-start);
+					while (!name.empty() && name.front()==' ') {name.remove_prefix(1);}
+					while (!name.empty() && name.back()==' ') {name.remove_suffix(1);}
+					names[idx++] = name;
+					start = i+1;
+				}
+			}
+
 			size_t i = 0;
-			((oss << (i++==0 ? "" : ",") << args), ...);
-			oss << ">";
-			return oss.str();
+			(([&]<typename T>(const T& val) {
+				if (i>0) {append_char(',');}
+				if constexpr (requires {std::string_view(val);}) {
+					//string-literal-like argument: use its own value directly,
+					//no "name=" pairing -- showing both the quoted source text
+					//and the value would be redundant.
+					append_sv(std::string_view(val));
+				} else {
+					append_sv(names[i]);
+					append_char('=');
+					append_value(val);
+				}
+				++i;
+			}(args)), ...);
+
+			append_char('>');
 		}
+		return result;
 	}
 }
 
