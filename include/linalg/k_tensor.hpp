@@ -126,13 +126,13 @@ namespace gutil {
 		static void ApplyAlongAxisIndex(pointer_type data_ptr, size_t axis, size_t i, Op&& op, const std::array<size_t,K>& dims) noexcept {
 			// GUTIL_PROFILE_FUNCTION(Simd);
 			size_t stride = 1;
-			for (size_t i=0; i<axis; ++i) {
-				stride *= dims[i];
+			for (size_t ii=0; ii<axis; ++ii) {
+				stride *= dims[ii];
 			}
 
 			size_t total = stride;
-			for (size_t i=axis; i<K; ++i) {
-				total *= dims[i];
+			for (size_t ii=axis; ii<K; ++ii) {
+				total *= dims[ii];
 			}
 
 			const size_t dim_axis = dims[axis];
@@ -164,8 +164,8 @@ namespace gutil {
 			const size_t inner = slice % stride;
 			const size_t base = outer*(stride*dim_axis) + inner;
 			GUTIL_SIMD(if(Simd))
-			for (size_t i=0; i<dim_axis; ++i) {
-				op(data_ptr[base + i*stride]);
+			for (size_t ii=0; ii<dim_axis; ++ii) {
+				op(data_ptr[base + ii*stride]);
 			}
 		}
 
