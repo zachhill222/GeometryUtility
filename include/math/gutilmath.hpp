@@ -184,7 +184,7 @@ namespace gutil {
 				if constexpr (requires { pow(x,y); }) {
 					return pow(x,y);
 				}
-				else if constexpr (IsReal<X> && IsInteger<Y>) {
+				else if constexpr (IsScalar<X> && IsInteger<Y>) {
 					if (y<Y{0}) {x = X{1}/x; y=-y;}
 					else if (y==Y{0}) {return X{1};}
 
@@ -194,7 +194,7 @@ namespace gutil {
 					return p;
 				}
 				else {
-					static_assert(always_false_v<X>, "gutil::ldexp - no function found");
+					static_assert(always_false_v<X>, "gutil::pow - no function found");
 				}
 			}
 		};
