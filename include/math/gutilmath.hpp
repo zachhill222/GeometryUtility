@@ -221,8 +221,11 @@ namespace gutil {
 	}
 
 	template<typename T, typename... Ts> requires (std::same_as<T,Ts> && ...)
-	[[nodiscard]] inline constexpr T max(T x, T y, Ts... rest) noexcept {
-		return gutil::max( gutil::max(x,y), rest... );
+	[[nodiscard]] inline constexpr T max(T x, Ts... rest) noexcept {
+		if constexpr (sizeof...(Ts) == 0) {return x;}
+		else {
+			return gutil::max(x, gutil::max(rest... ));
+		}
 	}
 
 	GUTIL_DECLARE_SIMD()
@@ -232,8 +235,11 @@ namespace gutil {
 	}
 
 	template<typename T, typename... Ts> requires (std::same_as<T,Ts> && ...)
-	[[nodiscard]] inline constexpr T min(T x, T y, Ts... rest) noexcept {
-		return gutil::min( gutil::min(x,y), rest... );
+	[[nodiscard]] inline constexpr T min(T x, Ts... rest) noexcept {
+		if constexpr (sizeof...(Ts) == 0) {return x;}
+		else {
+			return gutil::min(x, gutil::min(rest... ));
+		}
 	}
 
 	GUTIL_DECLARE_SIMD()

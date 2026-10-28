@@ -92,7 +92,7 @@ namespace gutil {
 		}
 
 		static void FlatToTensorIndex(size_t flat, std::array<size_t,K>& idx, const std::array<size_t,K>& dims) noexcept {
-			GUTIL_ASSERT(flat < gutil::product_reduce(dims));
+			GUTIL_ASSERT(flat < gutil::product_reduce(std::span<const size_t,K>{dims}));
 			if constexpr (K==1) {idx[0]=flat;}
 			else if constexpr (K==2) {
 				const size_t q = flat / dims[0];
